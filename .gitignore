@@ -1,0 +1,4 @@
+/target
+
+# git will throw error if i don't ignore this file
+/test_files/no_read
