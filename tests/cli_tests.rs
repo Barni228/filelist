@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use itertools::{Itertools, chain};
 
 fn run(args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) -> String {
     let output = Command::cargo_bin("filelist")
@@ -140,7 +141,7 @@ fn test_print() {
         "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
     );
 
-    for i in ["-p", "--print"] {
+    for i in ["-P", "--print"] {
         let file = tempfile::NamedTempFile::new().unwrap();
         let path = file.path().to_str().unwrap();
         assert_eq!(run(["test_files", "-r", "-o", path, i]), expected);
@@ -242,6 +243,82 @@ fn test_hash_directory_all() {
 }
 
 #[test]
+fn test_progress() {
+    let same_output = vec!["-0", "-a", "-l12", "-s=___"];
+    // powerset will give us all possible combinations, like
+    // [], ["-a"], ["-l12"], ["-s=___"], ["-a", "-l12"], ["-a", "-s=___"], ["-l12", "-s=___"], ["-a", "-l12", "-s=___"]
+    for i in same_output.iter().powerset() {
+        // for i in same_output.into_iter().map(|i| vec![i]) {
+        let output = Command::cargo_bin("filelist")
+            .unwrap()
+            .args(["-p", "test_files"].iter().chain(i))
+            .output()
+            .unwrap();
+        assert_eq!(output.stdout, output.stderr);
+    }
+    // let same_unordered: Vec<_> = ["-d", "-R"].into_iter().chain(same_output).collect();
+    let same_unordered = chain!(["-d"], same_output).collect_vec();
+    for i in same_unordered.iter().powerset() {
+        let output = Command::cargo_bin("filelist")
+            .unwrap()
+            .args(["-p", "test_files"].iter().chain(i))
+            .output()
+            .unwrap();
+        let s_out = String::from_utf8(output.stdout).unwrap();
+        let s_err = String::from_utf8(output.stderr).unwrap();
+        let out = s_out.split('\n').sorted_unstable();
+        let err = s_err.split('\n').sorted_unstable();
+        assert_eq!(out.collect_vec(), err.collect_vec(),);
+    }
+}
+
+#[test]
+fn test_progress_file() {
+    let same_output = vec!["-0", "-a", "-l12", "-s=___"];
+
+    for i in same_output.iter().powerset() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_str().unwrap();
+
+        let output = Command::cargo_bin("filelist")
+            .unwrap()
+            .args(["-p", "test_files", "-o", path].iter().chain(i))
+            .output()
+            .unwrap();
+
+        let out = String::from_utf8(output.stdout).unwrap();
+        let err = String::from_utf8(output.stderr).unwrap();
+        let file_content = std::fs::read_to_string(path).unwrap();
+
+        assert!(out.is_empty());
+
+        assert_eq!(err, file_content);
+    }
+}
+
+#[test]
+fn test_progress_no_recursion() {
+    let same_output = vec!["-a", "-l12", "-s=___"];
+
+    for i in same_output.iter().powerset() {
+        let output = Command::cargo_bin("filelist")
+            .unwrap()
+            .args(["-pR", "test_files"].iter().chain(i.clone()))
+            .output()
+            .unwrap();
+
+        assert!(output.status.success());
+
+        let s_err = String::from_utf8(output.stderr).unwrap();
+        let err = s_err.split('\n').sorted_unstable();
+        let real_output = run(["-d", "test_files"].iter().chain(i));
+        assert_eq!(
+            err.collect_vec(),
+            real_output.split('\n').sorted_unstable().collect_vec()
+        );
+    }
+}
+#[test]
 fn test_everything() {
     let expected = concat!(
         "test_files\n",
@@ -255,7 +332,7 @@ fn test_everything() {
     let path = file.path().to_str().unwrap();
 
     assert_eq!(
-        run(["test_files", "-0arpdl12", "-o", path, "--separator", "sep"]),
+        run(["test_files", "-0arPdl12", "-o", path, "--separator", "sep"]),
         expected
     );
     // you can give it a file or path, both work
