@@ -57,6 +57,17 @@ fn main() {
     let recursive = !matches.get_flag("no-recursive");
     let progress_hash = matches.get_flag("progress-hash");
     let progress_bar = matches.get_flag("progress-bar");
+    let output = matches.get_one::<PathBuf>("output");
+    if let Some(output) = output {
+        if output.exists() && !matches.get_flag("force") {
+            eprintln!(
+                "Error: output file '{}' already exists.\n\
+                If you want to overwrite it, use the -f / --force flag.",
+                output.display()
+            );
+            std::process::exit(1);
+        }
+    }
 
     let mut paths = matches
         .get_many::<PathBuf>("PATHS")
@@ -278,5 +289,6 @@ fn get_clap_command() -> clap::Command {
         arg!(-d --directory "Include directories when hashing recursively"),
         arg!(-e --"progress-hash" "print what has been hashed so far to stderr"),
         arg!(-p --"progress-bar" "print progress bar to stderr").conflicts_with("progress-hash"),
+        arg!(-f --force "Overwrite output file if it exists"),
     ])
 }
