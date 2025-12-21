@@ -97,6 +97,11 @@ fn main() {
         // clean the path, so that ./hi and ./foo/../hi both become just hi
         // needs path_clean crate
         .map(|p| p.clean())
+        // add / to directories, dir/
+        .map(|p| match p.is_dir() {
+            true => PathBuf::from(format!("{}/", p.display())),
+            false => p,
+        })
         .collect::<Vec<_>>();
 
     paths.sort_unstable();
