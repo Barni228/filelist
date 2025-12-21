@@ -63,7 +63,7 @@ fn main() {
             eprintln!(
                 "Error: output file '{}' already exists.\n\
                 If you want to overwrite it, use the -f / --force flag.",
-                output.display()
+                path_to_string(output)
             );
             std::process::exit(1);
         }
@@ -97,11 +97,7 @@ fn main() {
         // clean the path, so that ./hi and ./foo/../hi both become just hi
         // needs path_clean crate
         .map(|p| p.clean())
-        // add / to directories, dir/
-        .map(|p| match p.is_dir() {
-            true => PathBuf::from(format!("{}/", p.display())),
-            false => p,
-        })
+        // I will add / to directories in the path_to_string function
         .collect::<Vec<_>>();
 
     paths.sort_unstable();
@@ -177,13 +173,18 @@ fn main() {
     };
 
     let lines = paths.iter().map(|p| {
-        let path = p.display().to_string();
+        let path = path_to_string(p);
         if no_hash {
             let result = format!("{}\n", path);
             eprint!("{}", result);
             result
         } else {
-            fmt_line(&hash_no_error(p, all, &mut progress_func), &path)
+            // ignore the output file, because we cannot hash it since we dont know what it is yet
+            let ignore = match output {
+                Some(p) => p,
+                None => &PathBuf::new(),
+            };
+            fmt_line(&hash_no_error(p, all, ignore, &mut progress_func), &path)
         }
     });
 
@@ -207,6 +208,14 @@ fn main() {
     // }
 }
 
+fn path_to_string(path: &PathBuf) -> String {
+    if path.is_dir() {
+        format!("{}/", path.display())
+    } else {
+        path.display().to_string()
+    }
+}
+
 fn _hash_file(path: &PathBuf) -> io::Result<String> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
@@ -227,6 +236,7 @@ fn _hash_file(path: &PathBuf) -> io::Result<String> {
 fn _hash_dir(
     path: &PathBuf,
     use_hidden: bool,
+    ignore_file: &PathBuf,
     progress_func: &mut impl FnMut(&str, &str),
 ) -> io::Result<String> {
     let mut hashes = vec![];
@@ -235,8 +245,11 @@ fn _hash_dir(
             continue;
         }
         let path = entry.path().clean();
+        if path == ignore_file.as_path() {
+            continue;
+        }
 
-        let hash = hash_no_error(&path, use_hidden, progress_func);
+        let hash = hash_no_error(&path, use_hidden, ignore_file, progress_func);
         if !hash.starts_with("ERROR:") {
             hashes.push(hash);
         }
@@ -253,10 +266,11 @@ fn _hash_dir(
 fn hash_no_error(
     path: &PathBuf,
     use_hidden: bool,
+    ignore_file: &PathBuf,
     progress_func: &mut impl FnMut(&str, &str),
 ) -> String {
     let hash = if path.is_dir() {
-        match _hash_dir(path, use_hidden, progress_func) {
+        match _hash_dir(path, use_hidden, ignore_file, progress_func) {
             Ok(s) => s,
             Err(e) => format!("ERROR: {}", e),
         }
@@ -267,7 +281,7 @@ fn hash_no_error(
         }
     };
 
-    progress_func(&hash, &path.display().to_string());
+    progress_func(&hash, &path_to_string(path));
 
     hash
 }
