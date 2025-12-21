@@ -1,11 +1,17 @@
 use cached::proc_macro::cached;
 use clap::{arg, command, value_parser};
+use crossterm::queue;
+use crossterm::style::Print;
+use crossterm::terminal::{Clear, ClearType};
 use either::Either;
 use path_clean::PathClean;
+use progress_bar::pb::ProgressBar;
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Write, stdout};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::vec;
 use walkdir::WalkDir;
 
@@ -46,9 +52,11 @@ fn main() {
     let no_hash = matches.get_flag("no-hash");
     let sep = matches.get_one::<String>("separator").unwrap();
     let all = matches.get_flag("all");
+    let always_print = matches.get_flag("print");
     let hash_directory = matches.get_flag("directory");
     let recursive = !matches.get_flag("no-recursive");
-    let progress = matches.get_flag("progress");
+    let progress_hash = matches.get_flag("progress-hash");
+    let progress_bar = matches.get_flag("progress-bar");
 
     let mut paths = matches
         .get_many::<PathBuf>("PATHS")
@@ -83,6 +91,55 @@ fn main() {
     paths.sort_unstable();
     // remove same consecutive elements, since this is sorted it will remove all duplicates
     paths.dedup();
+    let pb = match progress_bar {
+        true => {
+            // create a progress bar
+            let pb = ProgressBar::new(paths.len());
+            // show it, so something like 0/69 is shown
+            pb.display();
+            // return thing that allows me to modify progress bar in different places
+            Some(Rc::new(RefCell::new(pb)))
+        }
+        false => None,
+    };
+
+    // if I print regularly, text will combine with the progress bar and make everything weird
+    // so text will be like
+    // abc123 file.txt====>    ] 0/69
+    // s should end with `\n`
+    let print_respect_progress = |s: String| {
+        if let Some(pb) = pb.as_ref() {
+            // clear the old progress bar, and print s
+            queue!(stdout(), Clear(ClearType::UntilNewLine), Print(s)).unwrap();
+            // re-print the progress bar again
+            // this will also probably flush the stdout, so queue above is fine
+            pb.borrow().display();
+        } else {
+            // if there is no progress bar, just print regularly
+            print!("{}", s);
+        }
+    };
+
+    // let mut progress_inc = {
+    //     // move pb and current into the closure
+    //     let mut current = 0;
+    //     let total = paths.len();
+    //     let mut pb = match progress_bar {
+    //         true => Some(ProgressBar::new(paths.len())),
+    //         false => None,
+    //     };
+
+    //     move || {
+    //         current += 1;
+    //         if let Some(pb) = pb.as_mut() {
+    //             pb.inc();
+    //             println!();
+    //             if current == total {
+    //                 pb.finalize();
+    //             }
+    //         }
+    //     }
+    // };
 
     let fmt_line = |hash: &str, path: &str| {
         let hash_cut = match hash.starts_with("ERROR:") {
@@ -92,9 +149,14 @@ fn main() {
         format!("{hash_cut}{sep}{path}\n")
     };
 
-    let progress_func = |hash: &str, path: &str| {
-        if progress {
+    let mut progress_func = |hash: &str, path: &str| {
+        if progress_hash {
             eprint!("{}", fmt_line(hash, path));
+        } else if progress_bar {
+            if let Some(pb) = pb.as_ref() {
+                // increment the progress bar
+                pb.borrow_mut().inc();
+            }
         }
     };
 
@@ -105,7 +167,7 @@ fn main() {
             eprint!("{}", result);
             result
         } else {
-            fmt_line(&hash_no_error(p, all, &progress_func), &path)
+            fmt_line(&hash_no_error(p, all, &mut progress_func), &path)
         }
     });
 
@@ -113,15 +175,20 @@ fn main() {
         let mut file = File::create(output).unwrap();
         for line in lines {
             file.write_all(line.as_bytes()).unwrap();
-            if matches.get_flag("print") {
-                print!("{}", line);
+            if always_print {
+                print_respect_progress(line);
             }
         }
     } else {
         for line in lines {
-            print!("{}", line);
+            print_respect_progress(line);
         }
     }
+
+    // if you don't finalize it, it will disappear after the program finishes
+    // if let Some(pb) = pb.as_ref() {
+    //     pb.borrow_mut().finalize();
+    // }
 }
 
 fn _hash_file(path: &PathBuf) -> io::Result<String> {
@@ -144,7 +211,7 @@ fn _hash_file(path: &PathBuf) -> io::Result<String> {
 fn _hash_dir(
     path: &PathBuf,
     use_hidden: bool,
-    progress_func: &impl Fn(&str, &str),
+    progress_func: &mut impl FnMut(&str, &str),
 ) -> io::Result<String> {
     let mut hashes = vec![];
     for entry in fs::read_dir(path)?.filter_map(Result::ok) {
@@ -167,7 +234,11 @@ fn _hash_dir(
 
 // cache ignores progress_func, and just caches by (path, use_hidden)
 #[cached(key = "(PathBuf, bool)", convert = r#"{ (path.clone(), use_hidden) }"#)]
-fn hash_no_error(path: &PathBuf, use_hidden: bool, progress_func: &impl Fn(&str, &str)) -> String {
+fn hash_no_error(
+    path: &PathBuf,
+    use_hidden: bool,
+    progress_func: &mut impl FnMut(&str, &str),
+) -> String {
     let hash = if path.is_dir() {
         match _hash_dir(path, use_hidden, progress_func) {
             Ok(s) => s,
@@ -205,6 +276,7 @@ fn get_clap_command() -> clap::Command {
             .default_value("  "),
         arg!(-P --print "always print to stdout, even if --output is set"),
         arg!(-d --directory "Include directories when hashing recursively"),
-        arg!(-p --progress "print what has been hashed so far to stderr").short_alias('e'),
+        arg!(-e --"progress-hash" "print what has been hashed so far to stderr"),
+        arg!(-p --"progress-bar" "print progress bar to stderr").conflicts_with("progress-hash"),
     ])
 }
