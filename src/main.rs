@@ -1,18 +1,22 @@
 use cached::proc_macro::cached;
 use clap::{arg, command, value_parser};
-use crossterm::queue;
-use crossterm::style::Print;
-use crossterm::terminal::{Clear, ClearType};
+use crossterm::{
+    queue,
+    style::{Print, Stylize},
+    terminal::{Clear, ClearType},
+};
 use either::Either;
 use path_clean::PathClean;
 use progress_bar::pb::ProgressBar;
 use sha2::{Digest, Sha256};
-use std::cell::RefCell;
-use std::fs::{self, File};
-use std::io::{self, BufReader, Read, Write, stdout};
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::vec;
+use std::{
+    cell::RefCell,
+    fs::{self, File},
+    io::{self, BufReader, IsTerminal, Read, Write},
+    path::PathBuf,
+    rc::Rc,
+    vec,
+};
 use walkdir::WalkDir;
 
 trait IsHidden {
@@ -37,34 +41,56 @@ impl IsHidden for fs::DirEntry {
     }
 }
 
-const HASH_LENGTH: i32 = 64;
+const MAX_HASH_LENGTH: i32 = 64;
+const MAX_HASH_LENGTH_STR: &str = "64";
 
 fn main() {
     let matches = get_clap_command().get_matches();
 
-    let hash_length = match *matches.get_one::<i32>("length").unwrap() {
-        -1 => HASH_LENGTH,
-        l => l,
+    let no_hash = matches.get_flag("no-hash");
+    // HACK: in order to make no_hash work with progress_func, I will just say that sep and hash are both empty
+    // So only file will be left :)
+    let hash_length = match no_hash {
+        true => 0,
+        false => *matches.get_one::<i32>("length").unwrap(),
+    };
+    debug_assert!((0..=MAX_HASH_LENGTH).contains(&hash_length));
+    let sep = match no_hash {
+        true => &String::new(),
+        false => matches.get_one::<String>("separator").unwrap(),
     };
 
-    debug_assert!((-1..=HASH_LENGTH).contains(&hash_length));
-
-    let no_hash = matches.get_flag("no-hash");
-    let sep = matches.get_one::<String>("separator").unwrap();
     let all = matches.get_flag("all");
     let always_print = matches.get_flag("print");
     let hash_directory = matches.get_flag("directory");
     let recursive = !matches.get_flag("no-recursive");
     let progress_hash = matches.get_flag("progress-hash");
     let progress_bar = matches.get_flag("progress-bar");
+    let use_color = match matches.get_one::<String>("color").unwrap().as_str() {
+        "always" => true,
+        "never" => false,
+        "auto" => io::stdout().is_terminal() && io::stderr().is_terminal(),
+        _ => unreachable!(),
+    };
+
     let output = matches.get_one::<PathBuf>("output");
+
     if let Some(output) = output {
         if output.exists() && !matches.get_flag("force") {
-            eprintln!(
-                "Error: output file '{}' already exists.\n\
-                If you want to overwrite it, use the -f / --force flag.",
-                path_to_string(output)
-            );
+            if use_color {
+                eprintln!(
+                    "{}: output file \"{}\" already exists.\n\
+                    If you want to overwrite it, use the -f / --force flag.",
+                    "Error".red(),
+                    path_to_string(output).bold()
+                );
+            } else {
+                eprintln!(
+                    "Error: output file \"{}\" already exists.\n\
+                    If you want to overwrite it, use the -f / --force flag.",
+                    path_to_string(output)
+                );
+            }
             std::process::exit(1);
         }
     }
@@ -115,44 +141,6 @@ fn main() {
         false => None,
     };
 
-    // if I print regularly, text will combine with the progress bar and make everything weird
-    // so text will be like
-    // abc123 file.txt====>    ] 0/69
-    // s should end with `\n`
-    let print_respect_progress = |s: String| {
-        if let Some(pb) = pb.as_ref() {
-            // clear the old progress bar, and print s
-            queue!(stdout(), Clear(ClearType::UntilNewLine), Print(s)).unwrap();
-            // re-print the progress bar again
-            // this will also probably flush the stdout, so queue above is fine
-            pb.borrow().display();
-        } else {
-            // if there is no progress bar, just print regularly
-            print!("{}", s);
-        }
-    };
-
-    // let mut progress_inc = {
-    //     // move pb and current into the closure
-    //     let mut current = 0;
-    //     let total = paths.len();
-    //     let mut pb = match progress_bar {
-    //         true => Some(ProgressBar::new(paths.len())),
-    //         false => None,
-    //     };
-
-    //     move || {
-    //         current += 1;
-    //         if let Some(pb) = pb.as_mut() {
-    //             pb.inc();
-    //             println!();
-    //             if current == total {
-    //                 pb.finalize();
-    //             }
-    //         }
-    //     }
-    // };
-
     let fmt_line = |hash: &str, path: &str| {
         let hash_cut = match hash.starts_with("ERROR:") {
             true => hash,
@@ -162,12 +150,16 @@ fn main() {
     };
 
     let mut progress_func = |hash: &str, path: &str| {
+        if let Some(pb) = pb.as_ref() {
+            // increment the progress bar
+            pb.borrow_mut().inc();
+        }
+
         if progress_hash {
-            eprint!("{}", fmt_line(hash, path));
-        } else if progress_bar {
-            if let Some(pb) = pb.as_ref() {
-                // increment the progress bar
-                pb.borrow_mut().inc();
+            if use_color {
+                eprint_respect_progress(fmt_line(hash, path).yellow().dim(), &pb);
+            } else {
+                eprint_respect_progress(fmt_line(hash, path), &pb);
             }
         }
     };
@@ -176,7 +168,7 @@ fn main() {
         let path = path_to_string(p);
         if no_hash {
             let result = format!("{}\n", path);
-            eprint!("{}", result);
+            progress_func("", &path);
             result
         } else {
             // ignore the output file, because we cannot hash it since we dont know what it is yet
@@ -193,12 +185,12 @@ fn main() {
         for line in lines {
             file.write_all(line.as_bytes()).unwrap();
             if always_print {
-                print_respect_progress(line);
+                print_respect_progress(line, &pb);
             }
         }
     } else {
         for line in lines {
-            print_respect_progress(line);
+            print_respect_progress(line, &pb);
         }
     }
 
@@ -214,6 +206,37 @@ fn path_to_string(path: &PathBuf) -> String {
     } else {
         path.display().to_string()
     }
+}
+
+// if I print regularly, text will combine with the progress bar and make everything weird
+// so text will be like
+// abc123 file.txt====>    ] 0/69
+// Note: s should end with `\n`, otherwise weird stuff will happen
+fn print_to_respect_progress(
+    out: &mut impl Write,
+    s: impl std::fmt::Display,
+    pb: &Option<Rc<RefCell<ProgressBar>>>,
+) -> io::Result<()> {
+    if let Some(pb) = pb {
+        // clear the old progress bar, and print s
+        queue!(out, Clear(ClearType::UntilNewLine), Print(s))?;
+        // re-print the progress bar again
+        // this will also probably flush the stdout, so queue above is fine
+        pb.borrow().display();
+    } else {
+        // if there is no progress bar, just print regularly
+        // print!("{}", s);
+        write!(out, "{}", s)?;
+    };
+    Ok(())
+}
+
+fn print_respect_progress(s: impl std::fmt::Display, pb: &Option<Rc<RefCell<ProgressBar>>>) {
+    print_to_respect_progress(&mut io::stdout(), s, pb).unwrap();
+}
+
+fn eprint_respect_progress(s: impl std::fmt::Display, pb: &Option<Rc<RefCell<ProgressBar>>>) {
+    print_to_respect_progress(&mut io::stderr(), s, pb).unwrap();
 }
 
 fn _hash_file(path: &PathBuf) -> io::Result<String> {
@@ -292,9 +315,9 @@ fn get_clap_command() -> clap::Command {
             .default_value(".")
             .value_parser(value_parser!(PathBuf)),
         arg!(-o --output <FILE> "Output file").value_parser(value_parser!(PathBuf)),
-        arg!(-l --length <LEN> "Length of hashes, -1 for default")
-            .default_value("-1")
-            .value_parser(value_parser!(i32).range(-1..=HASH_LENGTH as i64)),
+        arg!(-l --length <LEN> "Length of hashes")
+            .default_value(MAX_HASH_LENGTH_STR)
+            .value_parser(value_parser!(i32).range(0..=MAX_HASH_LENGTH as i64)),
         arg!(-'0' --"no-hash" "Don't hash files"),
         arg!(-a --all "Include hidden files"),
         // overrides with will make it so that when this is specified, the other one gets forgotten
@@ -307,7 +330,10 @@ fn get_clap_command() -> clap::Command {
         arg!(-P --print "always print to stdout, even if --output is set"),
         arg!(-d --directory "Include directories when hashing recursively"),
         arg!(-e --"progress-hash" "print what has been hashed so far to stderr"),
-        arg!(-p --"progress-bar" "print progress bar to stderr").conflicts_with("progress-hash"),
+        arg!(-p --"progress-bar" "print progress bar to stderr"),
         arg!(-f --force "Overwrite output file if it exists"),
+        arg!(--color <WHEN> "When to use colors (*auto*, never, always).")
+            .default_value("auto")
+            .value_parser(["auto", "always", "never"]),
     ])
 }

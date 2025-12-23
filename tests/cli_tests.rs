@@ -9,6 +9,7 @@ fn run(args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) -> String {
         .unwrap();
 
     assert!(output.status.success());
+    assert!(output.stderr.is_empty());
 
     String::from_utf8(output.stdout).unwrap()
 }
@@ -70,7 +71,7 @@ fn test_length_too_big() {
 fn test_write_file() {
     let file = tempfile::NamedTempFile::new().unwrap();
     let path = file.path().to_str().unwrap();
-    assert!(run(["test_files", "-r", "-o", path]).is_empty());
+    assert!(run(["test_files", "-r", "-fo", path]).is_empty());
     let out = std::fs::read_to_string(path).unwrap();
     assert_eq!(
         out,
@@ -83,9 +84,21 @@ fn test_write_file() {
 }
 
 #[test]
+fn test_output_file_exists() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let path = file.path().to_str().unwrap();
+    Command::cargo_bin("filelist")
+        .unwrap()
+        .args(["-r", "-o", path])
+        .assert()
+        .failure();
+    let out = std::fs::read_to_string(path).unwrap();
+    assert!(out.is_empty());
+}
+
+#[test]
 fn test_default_len() {
-    // if you don't use =, then -1 will be treated like option -1 and not negative 1
-    for i in ["-l=-1", "--length=-1"] {
+    for i in ["-l=64", "--length=64"] {
         assert_eq!(run(["test_files", i]), run(["test_files"]),);
     }
 }
@@ -144,7 +157,7 @@ fn test_print() {
     for i in ["-P", "--print"] {
         let file = tempfile::NamedTempFile::new().unwrap();
         let path = file.path().to_str().unwrap();
-        assert_eq!(run(["test_files", "-r", "-o", path, i]), expected);
+        assert_eq!(run(["test_files", "-r", "-fo", path, i]), expected);
         // you can give it a file or path, both work
         let out = std::fs::read_to_string(file).unwrap();
         assert_eq!(out, expected);
@@ -200,7 +213,7 @@ fn test_no_recursive() {
     for i in ["-R", "--no-recursive"] {
         assert_eq!(
             run(["test_files", i]),
-            "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  test_files\n"
+            "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  test_files/\n"
         );
     }
 }
@@ -209,7 +222,7 @@ fn test_no_recursive() {
 fn test_many_recursive() {
     assert_eq!(
         run(["-rRrRrR", "test_files"]),
-        "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  test_files\n"
+        "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  test_files/\n"
     )
 }
 
@@ -219,8 +232,8 @@ fn test_directory() {
         assert_eq!(
             run(["test_files", "-r", i]),
             concat!(
-                "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  test_files\n",
-                "11f9c53c2abc7d5a9f442687280f80bd5419feaf55af2e598e26d9b285d63ffd  test_files/dir\n",
+                "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  test_files/\n",
+                "11f9c53c2abc7d5a9f442687280f80bd5419feaf55af2e598e26d9b285d63ffd  test_files/dir/\n",
                 "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
                 "ERROR: Permission denied (os error 13)  test_files/no_read\n",
                 "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
@@ -234,11 +247,11 @@ fn test_hash_directory_all() {
     // hash of directory changes based on whether or not all is set
     assert_eq!(
         run(["-R", "test_files"]),
-        "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  test_files\n"
+        "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  test_files/\n"
     );
     assert_eq!(
         run(["-Ra", "test_files"]),
-        "72676a6eb3c35529a7c450d195045d660137a77d47cd9b980e508a76ce396def  test_files\n"
+        "72676a6eb3c35529a7c450d195045d660137a77d47cd9b980e508a76ce396def  test_files/\n"
     );
 }
 
@@ -251,7 +264,7 @@ fn test_progress() {
         // for i in same_output.into_iter().map(|i| vec![i]) {
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(["-p", "test_files"].iter().chain(i))
+            .args(["-e", "test_files"].iter().chain(i))
             .output()
             .unwrap();
         assert_eq!(output.stdout, output.stderr);
@@ -261,7 +274,7 @@ fn test_progress() {
     for i in same_unordered.iter().powerset() {
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(["-p", "test_files"].iter().chain(i))
+            .args(["-e", "test_files"].iter().chain(i))
             .output()
             .unwrap();
         let s_out = String::from_utf8(output.stdout).unwrap();
@@ -282,7 +295,7 @@ fn test_progress_file() {
 
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(["-p", "test_files", "-o", path].iter().chain(i))
+            .args(["-e", "test_files", "-fo", path].iter().chain(i))
             .output()
             .unwrap();
 
@@ -303,7 +316,7 @@ fn test_progress_no_recursion() {
     for i in same_output.iter().powerset() {
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(["-pR", "test_files"].iter().chain(i.clone()))
+            .args(["-feR", "test_files"].iter().chain(i.clone()))
             .output()
             .unwrap();
 
@@ -318,12 +331,82 @@ fn test_progress_no_recursion() {
         );
     }
 }
+
+#[test]
+fn test_color_auto() {
+    // tests are not in terminal, so auto should be off
+    assert_eq!(
+        Command::cargo_bin("filelist")
+            .unwrap()
+            .args(["test_files", "-e", "--color=auto"])
+            .output()
+            .unwrap(),
+        Command::cargo_bin("filelist")
+            .unwrap()
+            .args(["test_files", "-e", "--color=never"])
+            .output()
+            .unwrap(),
+    );
+}
+
+#[test]
+fn test_color_always() {
+    // if this test fails, then maybe you just changed the style of -e output
+    let out = Command::cargo_bin("filelist")
+        .unwrap()
+        .args(["test_files", "-e", "--color=always"])
+        .output()
+        .unwrap();
+
+    assert!(out.status.success());
+
+    let err = out.stderr;
+    // you can write to vector as if its stdout
+    // since stdout is technically a Vec<u8>
+    let mut expected = Vec::new();
+    let expected_lines = [
+        "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+        "ERROR: Permission denied (os error 13)  test_files/no_read\n",
+        "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+    ];
+
+    for line in expected_lines {
+        let mut attributes = crossterm::style::Attributes::none();
+        attributes.set(crossterm::style::Attribute::Dim);
+
+        let style = crossterm::style::ContentStyle {
+            foreground_color: Some(crossterm::style::Color::Yellow),
+            background_color: None,
+            underline_color: None,
+            attributes,
+            // ..Default::default()
+        };
+
+        // there is no need to flush vector, because its not real terminal so it doesn't buffer anything
+        // both execute! and queue! will immediately add bytes to the vector
+        crossterm::queue!(
+            expected,
+            crossterm::style::PrintStyledContent(style.apply(line))
+        )
+        .unwrap();
+    }
+
+    // I convert Vec<u8> to a string only so that when this test fails
+    // the diff is string instead of array of bytes, which is more readable
+    assert_eq!(
+        String::from_utf8(err).unwrap(),
+        String::from_utf8(expected).unwrap()
+    );
+    // this is same as above
+    // assert_eq!(err, expected);
+}
+
 #[test]
 fn test_everything() {
     let expected = concat!(
-        "test_files\n",
+        "test_files/\n",
         "test_files/.hidden\n",
-        "test_files/dir\n",
+        "test_files/dir/\n",
         "test_files/dir/regular\n",
         "test_files/no_read\n",
         "test_files/regular\n",
@@ -332,7 +415,7 @@ fn test_everything() {
     let path = file.path().to_str().unwrap();
 
     assert_eq!(
-        run(["test_files", "-0arPdl12", "-o", path, "--separator", "sep"]),
+        run(["test_files", "-0arPdl12", "-fo", path, "--separator", "sep"]),
         expected
     );
     // you can give it a file or path, both work
