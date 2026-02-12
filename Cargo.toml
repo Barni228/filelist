@@ -1,11 +1,10 @@
 [package]
 name = "filelist"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "List files in directory with their hashes."
 
 [dependencies]
-cached = "0.56.0"
 clap = { version = "4.5", features = ["cargo"] }
 crossterm = "0.29.0"
 either = "1.15.0"
