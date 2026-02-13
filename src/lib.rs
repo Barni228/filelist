@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use crossterm::{
     queue,
     style::{Print, Stylize},
@@ -18,8 +20,9 @@ use walkdir::WalkDir;
 
 const MAX_HASH_LENGTH: usize = 64; // max for SHA-256 hex
 
-// because ProgressBar does not derive anything, now all of this doesn't work ):
-// #[derive(Debug, Clone, PartialEq, Eq)]
+/// Main configuration and execution type for file hashing.
+///
+/// Use setters to configure behavior, then call [`FileList::run`] to execute.
 pub struct FileList {
     no_hash: bool,
     hash_length: usize,
@@ -57,6 +60,9 @@ impl Default for FileList {
 }
 
 impl FileList {
+    /// Create a new `FileList` with default configuration.
+    ///
+    /// Equivalent to [`Default::default`].
     pub fn new() -> Self {
         Self::default()
     }
@@ -141,6 +147,9 @@ impl FileList {
         self
     }
 
+    /// Hash a single file or directory and return the formatted output line.
+    ///
+    /// This respects all current configuration flags.
     pub fn hash(&mut self, path: &PathBuf) -> String {
         if self.no_hash {
             let result = format!("{}\n", self.path_to_string(path));
@@ -152,6 +161,18 @@ impl FileList {
         }
     }
 
+    /// Execute hashing for the provided paths.
+    ///
+    /// This will:
+    /// - Expand directories (if recursive)
+    /// - Filter hidden files (unless `--all`)
+    /// - Hash files and/or directories
+    /// - Optionally show a progress bar
+    /// - Print results to stdout or a file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if writing to the output file fails.
     pub fn run(&mut self, paths: Vec<PathBuf>) -> io::Result<()> {
         let real_paths = self.get_all_paths(paths);
         if self.use_progress_bar {
@@ -325,6 +346,9 @@ impl FileList {
         format!("{hash_cut}{sep}{path_formatted}\n", sep = self.sep)
     }
 
+    /// Convert a path into its display form.
+    ///
+    /// Directories are suffixed with `/`.
     pub fn path_to_string(&self, path: &PathBuf) -> String {
         if path.is_dir() {
             format!("{}/", path.display())

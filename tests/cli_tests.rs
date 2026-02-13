@@ -256,7 +256,7 @@ fn test_hash_directory_all() {
 }
 
 #[test]
-fn test_progress() {
+fn test_progress_hash() {
     let same_output = vec!["-0", "-a", "-l12", "-s=___"];
     // powerset will give us all possible combinations, like
     // [], ["-a"], ["-l12"], ["-s=___"], ["-a", "-l12"], ["-a", "-s=___"], ["-l12", "-s=___"], ["-a", "-l12", "-s=___"]
@@ -286,7 +286,7 @@ fn test_progress() {
 }
 
 #[test]
-fn test_progress_file() {
+fn test_progress_hash_file() {
     let same_output = vec!["-0", "-a", "-l12", "-s=___"];
 
     for i in same_output.iter().powerset() {
@@ -310,7 +310,7 @@ fn test_progress_file() {
 }
 
 #[test]
-fn test_progress_no_recursion() {
+fn test_progress_hash_no_recursion() {
     let same_output = vec!["-a", "-l12", "-s=___"];
 
     for i in same_output.iter().powerset() {
@@ -330,6 +330,32 @@ fn test_progress_no_recursion() {
             real_output.split('\n').sorted_unstable().collect_vec()
         );
     }
+}
+
+#[test]
+fn test_progress_bar() {
+    // if this fails, then maybe you changed progress bar logic
+    let output = Command::cargo_bin("filelist")
+        .unwrap()
+        .args(["-p", "test_files"])
+        .output()
+        .unwrap();
+    let s_out = String::from_utf8(output.stdout).unwrap();
+    let expected = concat![
+        "\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [                                                  ] 0/3\n",
+        "\u{1b}[1A\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [================>                                 ] 1/3\n",
+        "\u{1b}[1A\u{1b}[Kdd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+        "\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [================>                                 ] 1/3\n",
+        "\u{1b}[1A\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [=================================>                ] 2/3\n",
+        "\u{1b}[1A\u{1b}[KERROR: Permission denied (os error 13)  test_files/no_read\n",
+        "\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [=================================>                ] 2/3\n",
+        "\u{1b}[1A\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [=================================================>] 3/3\n",
+        "\u{1b}[1A\u{1b}[K7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+        "\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [=================================================>] 3/3\n",
+        "\u{1b}[1A",
+    ];
+
+    assert_eq!(s_out, expected);
 }
 
 #[test]
