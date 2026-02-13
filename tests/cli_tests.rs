@@ -1,6 +1,10 @@
 use assert_cmd::Command;
 use itertools::{Itertools, chain};
 
+// NOTE: if you clone this repo, make sure to create test_files/no_read file
+// touch test_files/no_read
+// chmod 000 test_files/no_read
+
 fn run(args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) -> String {
     let output = Command::cargo_bin("filelist")
         .unwrap()

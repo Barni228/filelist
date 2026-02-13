@@ -1,1 +1,2 @@
 - [ ] Make progress bar check file sizes, instead of advancing only when it finishes a single file
+- [ ] Optimize it somehow, maybe use multiple threads or something like that
