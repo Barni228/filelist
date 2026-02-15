@@ -345,21 +345,16 @@ fn test_progress_bar() {
         .output()
         .unwrap();
     let s_out = String::from_utf8(output.stdout).unwrap();
-    let expected = concat![
-        "\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [                                                  ] 0/3\n",
-        "\u{1b}[1A\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [================>                                 ] 1/3\n",
-        "\u{1b}[1A\u{1b}[Kdd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
-        "\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [================>                                 ] 1/3\n",
-        "\u{1b}[1A\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [=================================>                ] 2/3\n",
-        "\u{1b}[1A\u{1b}[KERROR: Permission denied (os error 13)  test_files/no_read\n",
-        "\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [=================================>                ] 2/3\n",
-        "\u{1b}[1A\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [=================================================>] 3/3\n",
-        "\u{1b}[1A\u{1b}[K7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
-        "\u{1b}[0m\u{1b}[30m\u{1b}[0m\u{1b}[K [=================================================>] 3/3\n",
-        "\u{1b}[1A",
+    let expected_out = concat![
+        "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+        "ERROR: Permission denied (os error 13)  test_files/no_read\n",
+        "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
     ];
+    assert_eq!(s_out, expected_out);
 
-    assert_eq!(s_out, expected);
+    let s_err = String::from_utf8(output.stderr).unwrap();
+    let expected_err = concat!["",];
+    assert_eq!(s_err, expected_err);
 }
 
 #[test]

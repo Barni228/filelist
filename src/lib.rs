@@ -1,13 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-use crossterm::{
-    queue,
-    style::{Print, Stylize},
-    terminal::{Clear, ClearType},
-};
+use crossterm::style::Stylize;
 use either::Either;
+use indicatif::{ProgressBar, ProgressStyle};
 use path_clean::PathClean;
-use progress_bar::pb::ProgressBar;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -23,6 +19,7 @@ const MAX_HASH_LENGTH: usize = 64; // max for SHA-256 hex
 /// Main configuration and execution type for file hashing.
 ///
 /// Use setters to configure behavior, then call [`FileList::run`] to execute.
+#[derive(Debug, Clone)]
 pub struct FileList {
     no_hash: bool,
     hash_length: usize,
@@ -177,9 +174,15 @@ impl FileList {
         let real_paths = self.get_all_paths(paths);
         if self.use_progress_bar {
             // create a progress bar
-            let pb = ProgressBar::new(real_paths.len());
-            // show it, so something like 0/69 is shown
-            pb.display();
+            let pb = ProgressBar::new(real_paths.len() as u64);
+            // here are all style options: https://docs.rs/indicatif/0.18.4/indicatif/index.html#templates
+            pb.set_style(
+                ProgressStyle::with_template("[{bar:60}] {pos}/{len} {msg} {eta}")
+                    .unwrap()
+                    .progress_chars("=> "),
+            );
+            // draw the progress bar, so something like 0/69 is shown
+            pb.tick();
             self.progress_bar = Some(pb);
         }
 
@@ -199,10 +202,9 @@ impl FileList {
             }
         }
 
-        // if you don't finalize it, it will disappear after the program finishes
-        // if let Some(pb) = self.progress_bar.as_mut() {
-        //     pb.finalize();
-        // }
+        if let Some(pb) = self.progress_bar.as_mut() {
+            pb.finish_and_clear();
+        }
         Ok(())
     }
 
@@ -248,9 +250,15 @@ impl FileList {
             }
         }
 
+        // sort the hashes, because order in which fd::read_dir returns files is not consistent across platforms
         hashes.sort_unstable();
+        // hash all of the given hashes
+        let mut hasher = Sha256::new();
+        for h in hashes {
+            hasher.update(h.as_bytes());
+        }
 
-        let hash = hex::encode(Sha256::digest(hashes.join("").as_bytes()));
+        let hash = hex::encode(hasher.finalize());
 
         Ok(hash)
     }
@@ -320,7 +328,7 @@ impl FileList {
     /// Handle progress bar / progress logs
     fn handle_progress(&mut self, path: &PathBuf, hash: &str) {
         if let Some(pb) = self.progress_bar.as_mut() {
-            pb.inc(); // increment the progress bar
+            pb.inc(1); // increment the progress bar
         }
 
         if self.use_progress_hash {
@@ -367,10 +375,8 @@ impl FileList {
         s: impl std::fmt::Display,
     ) -> io::Result<()> {
         if let Some(pb) = self.progress_bar.as_ref() {
-            // clear the old progress bar, and print s
-            queue!(out, Clear(ClearType::UntilNewLine), Print(s))?;
-            // re-print the progress bar again, this will also probably flush the stdout, so queue above is fine
-            pb.display();
+            // suspend will remove the progress bar, execute something, and then put it back
+            pb.suspend(|| write!(out, "{}", s))?;
         } else {
             // if there is no progress bar, just print regularly
             write!(out, "{}", s)?;
