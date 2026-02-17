@@ -28,6 +28,7 @@ fn main() {
         .set_hash_directory(matches.get_flag("directory"))
         .set_use_progress_hash(matches.get_flag("progress-hash"))
         .set_use_progress_bar(matches.get_flag("progress-bar"))
+        .set_use_parallel(!matches.get_flag("no-parallel"))
         .set_use_color(use_color);
 
     if let Some(output) = fl.output() {
@@ -84,5 +85,8 @@ fn get_clap_command() -> clap::Command {
         arg!(--color <WHEN> "When to use colors (*auto*, never, always).")
             .default_value("auto")
             .value_parser(["auto", "always", "never"]),
+        arg!(--"parallel" "Enable parallel hashing (default)").overrides_with("no-parallel"),
+        arg!(--"no-parallel" "Disable parallel hashing, use a single thread")
+            .overrides_with("parallel"),
     ])
 }

@@ -268,17 +268,16 @@ fn test_progress_hash() {
         // for i in same_output.into_iter().map(|i| vec![i]) {
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(["-e", "test_files"].iter().chain(i))
+            .args(["-e", "--no-parallel", "test_files"].iter().chain(i)) // dont run in parallel, so order is predictable
             .output()
             .unwrap();
         assert_eq!(output.stdout, output.stderr);
     }
-    // let same_unordered: Vec<_> = ["-d", "-R"].into_iter().chain(same_output).collect();
-    let same_unordered = chain!(["-d"], same_output).collect_vec();
+    let same_unordered = chain!(["-d", "--parallel"], same_output).collect_vec();
     for i in same_unordered.iter().powerset() {
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(["-e", "test_files"].iter().chain(i))
+            .args(["-e", "test_files"].iter().chain(i)) // since order does not matter, run in parallel
             .output()
             .unwrap();
         let s_out = String::from_utf8(output.stdout).unwrap();
@@ -299,7 +298,12 @@ fn test_progress_hash_file() {
 
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(["-e", "test_files", "-fo", path].iter().chain(i))
+            .args(
+                // no parallel so that the order is predictable
+                ["-e", "--no-parallel", "test_files", "-fo", path]
+                    .iter()
+                    .chain(i),
+            )
             .output()
             .unwrap();
 
@@ -363,12 +367,12 @@ fn test_color_auto() {
     assert_eq!(
         Command::cargo_bin("filelist")
             .unwrap()
-            .args(["test_files", "-e", "--color=auto"])
+            .args(["test_files", "-e", "--no-parallel", "--color=auto"])
             .output()
             .unwrap(),
         Command::cargo_bin("filelist")
             .unwrap()
-            .args(["test_files", "-e", "--color=never"])
+            .args(["test_files", "-e", "--no-parallel", "--color=never"])
             .output()
             .unwrap(),
     );
@@ -379,7 +383,7 @@ fn test_color_always() {
     // if this test fails, then maybe you just changed the style of -e output
     let out = Command::cargo_bin("filelist")
         .unwrap()
-        .args(["test_files", "-e", "--color=always"])
+        .args(["test_files", "-e", "--no-parallel", "--color=always"])
         .output()
         .unwrap();
 

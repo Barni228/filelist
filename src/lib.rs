@@ -1,16 +1,19 @@
 #![doc = include_str!("../README.md")]
 
+//! You can find every parallel code by searching for "par_"
+
 use crossterm::style::Stylize;
+use dashmap::DashMap;
 use either::Either;
 use indicatif::{ProgressBar, ProgressStyle};
 use path_clean::PathClean;
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
     fs::{self, File},
     io::{self, BufReader, Read, Write},
     path::PathBuf,
-    vec,
+    sync::Arc,
 };
 use walkdir::WalkDir;
 
@@ -31,11 +34,14 @@ pub struct FileList {
     use_progress_hash: bool,
     use_progress_bar: bool,
     use_color: bool,
+    use_parallel: bool,
     output: Option<PathBuf>,
-    cache: HashMap<PathBuf, String>,
-    progress_bar: Option<ProgressBar>,
+    cache: Arc<DashMap<PathBuf, String>>,
+    progress_bar: Option<Arc<ProgressBar>>,
 }
 
+// Arc allows me to edit something without mutable reference, and is also thread-safe
+// but that something NEEDS to be thread-safe (HashMap is not, thats why I use DashMap)
 impl Default for FileList {
     fn default() -> Self {
         Self {
@@ -49,13 +55,15 @@ impl Default for FileList {
             use_progress_hash: false,
             use_progress_bar: false,
             use_color: false,
+            use_parallel: true,
             output: None,
-            cache: HashMap::new(),
+            cache: Arc::new(DashMap::new()),
             progress_bar: None,
         }
     }
 }
 
+// Constructors
 impl FileList {
     /// Create a new `FileList` with default configuration.
     ///
@@ -63,6 +71,10 @@ impl FileList {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+// Getters and Setters
+impl FileList {
     // Getters
     pub fn no_hash(&self) -> bool {
         self.no_hash
@@ -90,6 +102,9 @@ impl FileList {
     }
     pub fn use_progress_bar(&self) -> bool {
         self.use_progress_bar
+    }
+    pub fn use_parallel(&self) -> bool {
+        self.use_parallel
     }
     pub fn use_color(&self) -> bool {
         self.use_color
@@ -135,6 +150,10 @@ impl FileList {
         self.use_progress_bar = value;
         self
     }
+    pub fn set_use_parallel(&mut self, value: bool) -> &mut Self {
+        self.use_parallel = value;
+        self
+    }
     pub fn set_use_color(&mut self, value: bool) -> &mut Self {
         self.use_color = value;
         self
@@ -143,11 +162,14 @@ impl FileList {
         self.output = path.map(|p| p.into().clean());
         self
     }
+}
 
+// Public Functions
+impl FileList {
     /// Hash a single file or directory and return the formatted output line.
     ///
     /// This respects all current configuration flags.
-    pub fn hash(&mut self, path: &PathBuf) -> String {
+    pub fn hash(&self, path: &PathBuf) -> String {
         if self.no_hash {
             let result = format!("{}\n", self.path_to_string(path));
             self.handle_progress(path, &result);
@@ -157,6 +179,8 @@ impl FileList {
             self.fmt_line(path, &hash)
         }
     }
+    // TODO: because of parallel, when hashing a directory, one thread will start hashing a file inside of directory from hash_dir
+    // but another thread will also start hashing that same file from run (get_all_paths returned it), so we hash it twice
 
     /// Execute hashing for the provided paths.
     ///
@@ -171,7 +195,7 @@ impl FileList {
     ///
     /// Returns an error if writing to the output file fails.
     pub fn run(&mut self, paths: Vec<PathBuf>) -> io::Result<()> {
-        let real_paths = self.get_all_paths(paths);
+        let real_paths = self.get_output_paths(paths);
         if self.use_progress_bar {
             // create a progress bar
             let pb = ProgressBar::new(real_paths.len() as u64);
@@ -183,33 +207,52 @@ impl FileList {
             );
             // draw the progress bar, so something like 0/69 is shown
             pb.tick();
-            self.progress_bar = Some(pb);
+            self.progress_bar = Some(Arc::new(pb));
         }
+
+        // convert every path into a hash, and collect as a vector, so order is preserved
+        let result: Vec<String> = if self.use_parallel {
+            real_paths.par_iter().map(|path| self.hash(path)).collect()
+        } else {
+            real_paths.iter().map(|path| self.hash(path)).collect()
+        };
 
         if let Some(output) = self.output.as_ref() {
             let mut file = File::create(output).unwrap();
-            for path in real_paths {
-                let line = self.hash(&path);
+            for line in result {
                 file.write_all(line.as_bytes()).unwrap();
                 if self.always_print {
                     self.print_respect_progress(line);
                 }
             }
         } else {
-            for path in real_paths {
-                let line = self.hash(&path);
+            for line in result {
                 self.print_respect_progress(line);
             }
         }
 
-        if let Some(pb) = self.progress_bar.as_mut() {
+        if let Some(pb) = &self.progress_bar {
             pb.finish_and_clear();
         }
         Ok(())
     }
 
+    /// Convert a path into its display form.
+    ///
+    /// Directories are suffixed with `/`.
+    pub fn path_to_string(&self, path: &PathBuf) -> String {
+        if path.is_dir() {
+            format!("{}/", path.display())
+        } else {
+            path.display().to_string()
+        }
+    }
+}
+
+// Actual Logic, all private
+impl FileList {
     /// Hash a file
-    fn hash_file(&mut self, path: &PathBuf) -> io::Result<String> {
+    fn hash_file(&self, path: &PathBuf) -> io::Result<String> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
         let mut hasher = Sha256::new();
@@ -231,28 +274,41 @@ impl FileList {
     /// The way this works is: <br>
     /// it will hash everything inside of the directory,
     /// sort all of those hashes, and then hash them all together
-    fn hash_dir(&mut self, path: &PathBuf) -> io::Result<String> {
-        let mut hashes = vec![];
-        for entry in fs::read_dir(path)?.filter_map(Result::ok) {
+    fn hash_dir(&self, path: &PathBuf) -> io::Result<String> {
+        let func = |entry: fs::DirEntry| {
             if !self.all && entry.is_hidden() {
-                continue;
+                return None;
             }
             let path = entry.path().clean();
 
             // ignore the output file, because we cannot hash it since we dont know what it is yet
             if self.output.as_ref() == Some(&path) {
-                continue;
+                return None;
             }
 
             let hash = self.hash_no_error(&path);
             if !hash.starts_with("ERROR:") {
-                hashes.push(hash);
+                return Some(hash);
+            } else {
+                return None;
             }
-        }
+        };
+        let mut hashes: Vec<String> = if self.use_parallel {
+            fs::read_dir(path)?
+                .filter_map(Result::ok)
+                .par_bridge()
+                .filter_map(func)
+                .collect()
+        } else {
+            fs::read_dir(path)?
+                .filter_map(Result::ok)
+                .filter_map(func)
+                .collect()
+        };
 
         // sort the hashes, because order in which fd::read_dir returns files is not consistent across platforms
         hashes.sort_unstable();
-        // hash all of the given hashes
+        // hash all of the hashes together
         let mut hasher = Sha256::new();
         for h in hashes {
             hasher.update(h.as_bytes());
@@ -265,7 +321,7 @@ impl FileList {
 
     /// Hash a file or directory, and cache the result
     /// Return "ERROR: <error>" if there is an error
-    fn hash_no_error(&mut self, path: &PathBuf) -> String {
+    fn hash_no_error(&self, path: &PathBuf) -> String {
         if let Some(hash) = self.cache.get(path) {
             return hash.clone();
         }
@@ -287,7 +343,9 @@ impl FileList {
         hash
     }
 
-    fn get_all_paths(&self, paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    /// will return a list of all paths that this program should output
+    /// So every path that the user wants to see (not necessarily all paths that we should hash)
+    fn get_output_paths(&self, paths: Vec<PathBuf>) -> Vec<PathBuf> {
         let mut real_paths: Vec<PathBuf> = paths
             .iter()
             .flat_map(|p| {
@@ -326,8 +384,8 @@ impl FileList {
     }
 
     /// Handle progress bar / progress logs
-    fn handle_progress(&mut self, path: &PathBuf, hash: &str) {
-        if let Some(pb) = self.progress_bar.as_mut() {
+    fn handle_progress(&self, path: &PathBuf, hash: &str) {
+        if let Some(pb) = &self.progress_bar {
             pb.inc(1); // increment the progress bar
         }
 
@@ -352,17 +410,6 @@ impl FileList {
             false => &hash[0..self.hash_length],
         };
         format!("{hash_cut}{sep}{path_formatted}\n", sep = self.sep)
-    }
-
-    /// Convert a path into its display form.
-    ///
-    /// Directories are suffixed with `/`.
-    pub fn path_to_string(&self, path: &PathBuf) -> String {
-        if path.is_dir() {
-            format!("{}/", path.display())
-        } else {
-            path.display().to_string()
-        }
     }
 
     /// if I print regularly, text will combine with the progress bar and make everything weird
