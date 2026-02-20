@@ -10,6 +10,8 @@ use path_clean::PathClean;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
+    cmp::max,
+    collections::{BTreeMap, HashSet},
     fs::{self, File},
     io::{self, BufReader, Read, Write},
     path::PathBuf,
@@ -37,6 +39,7 @@ pub struct FileList {
     use_parallel: bool,
     output: Option<PathBuf>,
     cache: Arc<DashMap<PathBuf, String>>,
+    depth_cache: Arc<DashMap<PathBuf, i32>>,
     progress_bar: Option<Arc<ProgressBar>>,
 }
 
@@ -57,7 +60,9 @@ impl Default for FileList {
             use_color: false,
             use_parallel: true,
             output: None,
+            // these are private (no setter or getter)
             cache: Arc::new(DashMap::new()),
+            depth_cache: Arc::new(DashMap::new()),
             progress_bar: None,
         }
     }
@@ -186,7 +191,7 @@ impl FileList {
     ///
     /// This will:
     /// - Expand directories (if recursive)
-    /// - Filter hidden files (unless `--all`)
+    /// - Filter hidden files (unless `all` is true)
     /// - Hash files and/or directories
     /// - Optionally show a progress bar
     /// - Print results to stdout or a file
@@ -195,7 +200,7 @@ impl FileList {
     ///
     /// Returns an error if writing to the output file fails.
     pub fn run(&mut self, paths: Vec<PathBuf>) -> io::Result<()> {
-        let real_paths = self.get_output_paths(paths);
+        let real_paths = self.get_output_paths(&paths);
         if self.use_progress_bar {
             // create a progress bar
             let pb = ProgressBar::new(real_paths.len() as u64);
@@ -208,6 +213,22 @@ impl FileList {
             // draw the progress bar, so something like 0/69 is shown
             pb.tick();
             self.progress_bar = Some(Arc::new(pb));
+        }
+
+        // cache every single path, in such order that we never hash the same file twice
+        // don't bother caching stuff if `no_hash` is true
+        if self.use_parallel && !self.no_hash {
+            for set in self.get_hash_dependencies(&paths) {
+                set.par_iter().for_each(|p| {
+                    self.hash(p);
+                });
+            }
+        } else if !self.no_hash {
+            for set in self.get_hash_dependencies(&paths) {
+                set.iter().for_each(|p| {
+                    self.hash(p);
+                });
+            }
         }
 
         // convert every path into a hash, and collect as a vector, so order is preserved
@@ -343,9 +364,27 @@ impl FileList {
         hash
     }
 
+    /// Handle progress bar / progress logs
+    fn handle_progress(&self, path: &PathBuf, hash: &str) {
+        if self.use_progress_bar
+            && let Some(pb) = &self.progress_bar
+        {
+            pb.inc(1);
+        }
+
+        if self.use_progress_hash {
+            if self.use_color {
+                self.eprint_respect_progress(self.fmt_line(path, hash).yellow().dim());
+            } else {
+                self.eprint_respect_progress(self.fmt_line(path, hash));
+            }
+        }
+    }
+
+    // TODO: dont filter out p when filtering out hidden files, instead of weird mid_depth thing
     /// will return a list of all paths that this program should output
     /// So every path that the user wants to see (not necessarily all paths that we should hash)
-    fn get_output_paths(&self, paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    fn get_output_paths(&self, paths: &Vec<PathBuf>) -> Vec<PathBuf> {
         let mut real_paths: Vec<PathBuf> = paths
             .iter()
             .flat_map(|p| {
@@ -358,8 +397,9 @@ impl FileList {
                             .into_iter()
                             // filter out hidden files if --all is not set
                             .filter_entry(|e| self.all || !e.is_hidden())
-                            .filter_map(|e| e.ok().map(|e| e.into_path())) // convert to PathBuf
-                            // add the directory itself after the hidden files check
+                            .filter_map(Result::ok)
+                            .map(|e| e.into_path()) // convert to PathBuf
+                            // add the directory itself AFTER the hidden files check
                             // so if the user gave us .dir, we will include it even without --all
                             .chain(std::iter::once(p.clone()))
                             // filter out directories if --directory is not set
@@ -383,19 +423,72 @@ impl FileList {
         real_paths
     }
 
-    /// Handle progress bar / progress logs
-    fn handle_progress(&self, path: &PathBuf, hash: &str) {
-        if let Some(pb) = &self.progress_bar {
-            pb.inc(1); // increment the progress bar
+    /// Returns the maximum depth of descendants inside `path`.
+    ///
+    /// Depth is relative to `path`:
+    /// - A file returns 0.
+    /// - An empty directory returns 0.
+    /// - A directory containing `a/b/c` returns 3.
+    /// - Only counts hidden files if `all` is true
+    fn max_subtree_depth(&self, path: &PathBuf) -> i32 {
+        let path = path.clean();
+
+        if path.is_file() {
+            return 0;
+        }
+        if let Some(depth) = self.depth_cache.get(&path) {
+            return *depth;
         }
 
-        if self.use_progress_hash {
-            if self.use_color {
-                self.eprint_respect_progress(self.fmt_line(path, hash).yellow().dim());
-            } else {
-                self.eprint_respect_progress(self.fmt_line(path, hash));
-            }
+        let max_depth = fs::read_dir(&path)
+            .unwrap()
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| self.all || !e.is_hidden())
+            // -1 if there are no children, or deepest child if there are children
+            .fold(-1, |current_max, e| {
+                max(current_max, self.max_subtree_depth(&e.path()))
+            })
+            // add 1 to get the depth of the directory itself
+            + 1;
+
+        self.depth_cache.insert(path, max_depth);
+
+        max_depth
+        // WalkDir::new(path)
+        //     .into_iter()
+        //     .filter_map(|e| e.ok())
+        //     .filter(|e| self.all || !e.is_hidden())
+        //     .fold(0, |current_max, e| max(current_max, e.depth()))
+    }
+
+    // TODO: maybe do this in parallel (paths.par_iter())
+    // get a list which says in what order the paths should be hashed
+    fn get_hash_dependencies(&self, paths: &Vec<PathBuf>) -> Vec<HashSet<PathBuf>> {
+        // BTreeMap is a sorted HashMap
+        let mut dependencies: BTreeMap<i32, HashSet<PathBuf>> = BTreeMap::new();
+
+        // TODO: make this respect all the settings
+        // TODO: right now, if i give a hidden file as an argument, get_output_paths will keep it regardless of --all
+        // But do i keep it here? when i implement filtering of hidden files
+        for p in paths {
+            // if you give a file to WalkDir, it will just return it
+            WalkDir::new(&p)
+                .into_iter()
+                .filter_entry(|e| self.all || !e.is_hidden() || e.depth() == 0)
+                .filter_map(Result::ok)
+                .filter(|e| self.hash_directory || !e.file_type().is_dir())
+                .for_each(|e| {
+                    let path = e.path().clean();
+                    let subtree_depth = self.max_subtree_depth(&path);
+                    // get the set at that depth, or insert an empty one there
+                    let set = dependencies.entry(subtree_depth).or_default();
+                    set.insert(path);
+                });
         }
+
+        // get all of the values (which are sorted by depth) and collect them to Vec
+        dependencies.into_values().collect()
     }
 
     // format path and hash to be shown according to the flags

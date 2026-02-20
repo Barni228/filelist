@@ -1,5 +1,5 @@
 use assert_cmd::Command;
-use itertools::{Itertools, chain};
+use itertools::Itertools;
 
 // NOTE: if you clone this repo, make sure to create test_files/no_read file
 // touch test_files/no_read
@@ -261,36 +261,25 @@ fn test_hash_directory_all() {
 
 #[test]
 fn test_progress_hash() {
-    let same_output = vec!["-0", "-a", "-l12", "-s=___"];
+    let same_unordered = vec!["-0", "-a", "-l12", "-s=___", "-d", "--parallel"];
     // powerset will give us all possible combinations, like
-    // [], ["-a"], ["-l12"], ["-s=___"], ["-a", "-l12"], ["-a", "-s=___"], ["-l12", "-s=___"], ["-a", "-l12", "-s=___"]
-    for i in same_output.iter().powerset() {
-        // for i in same_output.into_iter().map(|i| vec![i]) {
-        let output = Command::cargo_bin("filelist")
-            .unwrap()
-            .args(["-e", "--no-parallel", "test_files"].iter().chain(i)) // dont run in parallel, so order is predictable
-            .output()
-            .unwrap();
-        assert_eq!(output.stdout, output.stderr);
-    }
-    let same_unordered = chain!(["-d", "--parallel"], same_output).collect_vec();
     for i in same_unordered.iter().powerset() {
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(["-e", "test_files"].iter().chain(i)) // since order does not matter, run in parallel
+            .args(["-e", "test_files"].iter().chain(i))
             .output()
             .unwrap();
         let s_out = String::from_utf8(output.stdout).unwrap();
         let s_err = String::from_utf8(output.stderr).unwrap();
         let out = s_out.split('\n').sorted_unstable();
         let err = s_err.split('\n').sorted_unstable();
-        assert_eq!(out.collect_vec(), err.collect_vec(),);
+        assert_eq!(out.collect_vec(), err.collect_vec());
     }
 }
 
 #[test]
 fn test_progress_hash_file() {
-    let same_output = vec!["-0", "-a", "-l12", "-s=___"];
+    let same_output = vec!["-0", "-a", "-l12", "-s=___", "-d"];
 
     for i in same_output.iter().powerset() {
         let file = tempfile::NamedTempFile::new().unwrap();
@@ -298,20 +287,17 @@ fn test_progress_hash_file() {
 
         let output = Command::cargo_bin("filelist")
             .unwrap()
-            .args(
-                // no parallel so that the order is predictable
-                ["-e", "--no-parallel", "test_files", "-fo", path]
-                    .iter()
-                    .chain(i),
-            )
+            .args(["-e", "test_files", "-fo", path].iter().chain(i))
             .output()
             .unwrap();
 
-        let out = String::from_utf8(output.stdout).unwrap();
-        let err = String::from_utf8(output.stderr).unwrap();
-        let file_content = std::fs::read_to_string(path).unwrap();
+        let s_out = String::from_utf8(output.stdout).unwrap();
+        let s_err = String::from_utf8(output.stderr).unwrap();
+        let err = s_err.split('\n').sorted_unstable().collect_vec();
+        let s_file_content = std::fs::read_to_string(path).unwrap();
+        let file_content = s_file_content.split('\n').sorted_unstable().collect_vec();
 
-        assert!(out.is_empty());
+        assert!(s_out.is_empty());
 
         assert_eq!(err, file_content);
     }
@@ -363,41 +349,64 @@ fn test_progress_bar() {
 
 #[test]
 fn test_color_auto() {
-    // tests are not in terminal, so auto should be off
-    assert_eq!(
-        Command::cargo_bin("filelist")
-            .unwrap()
-            .args(["test_files", "-e", "--no-parallel", "--color=auto"])
-            .output()
-            .unwrap(),
-        Command::cargo_bin("filelist")
-            .unwrap()
-            .args(["test_files", "-e", "--no-parallel", "--color=never"])
-            .output()
-            .unwrap(),
-    );
+    let output_auto = Command::cargo_bin("filelist")
+        .unwrap()
+        .args(["test_files", "-e", "--color=auto"])
+        .output()
+        .unwrap();
+
+    let s_auto_out = String::from_utf8(output_auto.stdout).unwrap();
+    let s_auto_err = String::from_utf8(output_auto.stderr).unwrap();
+    let auto_out = s_auto_out.split('\n').collect_vec();
+    let auto_err = s_auto_err.split('\n').sorted_unstable().collect_vec();
+
+    let output_never = Command::cargo_bin("filelist")
+        .unwrap()
+        .args(["test_files", "-e", "--color=never"])
+        .output()
+        .unwrap();
+
+    let s_never_out = String::from_utf8(output_never.stdout).unwrap();
+    let s_never_err = String::from_utf8(output_never.stderr).unwrap();
+    let never_out = s_never_out.split('\n').collect_vec();
+    let never_err = s_never_err.split('\n').sorted_unstable().collect_vec();
+
+    assert_eq!(auto_out, never_out);
+    assert_eq!(auto_err, never_err);
 }
 
 #[test]
 fn test_color_always() {
     // if this test fails, then maybe you just changed the style of -e output
-    let out = Command::cargo_bin("filelist")
+    let output = Command::cargo_bin("filelist")
         .unwrap()
-        .args(["test_files", "-e", "--no-parallel", "--color=always"])
+        .args(["test_files", "-e", "--color=always"])
         .output()
         .unwrap();
 
-    assert!(out.status.success());
+    assert!(output.status.success());
 
-    let err = out.stderr;
+    // let s_err = String::from_utf8(output.stderr).unwrap();
+    let s_err = String::from_utf8(output.stderr.clone()).unwrap();
+    let err = s_err.split('\n').sorted_unstable().collect_vec();
+
     // you can write to vector as if its stdout
     // since stdout is technically a Vec<u8>
     let mut expected = Vec::new();
-    let expected_lines = [
+    let mut expected_lines = [
         "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
         "ERROR: Permission denied (os error 13)  test_files/no_read\n",
         "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
     ];
+
+    // order the lines in the same way filelist printed them
+    expected_lines.sort_unstable_by_key(|l| {
+        std::cmp::Reverse(
+            err.iter()
+                .position(|e| e.contains(&l.replace('\n', "")))
+                .unwrap(),
+        )
+    });
 
     for line in expected_lines {
         let mut attributes = crossterm::style::Attributes::none();
@@ -419,15 +428,7 @@ fn test_color_always() {
         )
         .unwrap();
     }
-
-    // I convert Vec<u8> to a string only so that when this test fails
-    // the diff is string instead of array of bytes, which is more readable
-    assert_eq!(
-        String::from_utf8(err).unwrap(),
-        String::from_utf8(expected).unwrap()
-    );
-    // this is same as above
-    // assert_eq!(err, expected);
+    assert_eq!(s_err, String::from_utf8(expected).unwrap());
 }
 
 #[test]
