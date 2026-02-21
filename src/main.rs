@@ -1,5 +1,4 @@
 use clap::{arg, command, value_parser};
-use crossterm::style::Stylize;
 use filelist::FileList;
 use std::{
     io::{self, IsTerminal},
@@ -16,7 +15,6 @@ fn main() {
         "auto" => io::stdout().is_terminal() && io::stderr().is_terminal(),
         _ => unreachable!(),
     };
-    let force = matches.get_flag("force");
 
     fl.set_output(matches.get_one::<PathBuf>("output"))
         .set_hash_length(*matches.get_one::<i32>("length").unwrap() as usize)
@@ -29,27 +27,10 @@ fn main() {
         .set_use_progress_hash(matches.get_flag("progress-hash"))
         .set_use_progress_bar(matches.get_flag("progress-bar"))
         .set_use_parallel(!matches.get_flag("no-parallel"))
-        .set_use_color(use_color);
+        .set_use_color(use_color)
+        .set_output(matches.get_one::<PathBuf>("output"))
+        .set_force(matches.get_flag("force"));
 
-    if let Some(output) = fl.output() {
-        if output.exists() && !force {
-            if use_color {
-                eprintln!(
-                    "{}: output file \"{}\" already exists.\n\
-                    If you want to overwrite it, use the -f / --force flag.",
-                    "Error".red(),
-                    fl.path_to_string(output).bold()
-                );
-            } else {
-                eprintln!(
-                    "Error: output file \"{}\" already exists.\n\
-                    If you want to overwrite it, use the -f / --force flag.",
-                    fl.path_to_string(output)
-                );
-            }
-            std::process::exit(1);
-        }
-    }
     let paths: Vec<PathBuf> = matches
         .get_many::<PathBuf>("PATHS")
         .unwrap()

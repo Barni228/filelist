@@ -1,7 +1,3 @@
-#![doc = include_str!("../README.md")]
-
-//! You can find every parallel code by searching for "par_"
-
 use crossterm::style::Stylize;
 use dashmap::DashMap;
 use either::Either;
@@ -19,8 +15,45 @@ use std::{
 };
 use walkdir::WalkDir;
 
+// TODO: I don't like this macro just being in here, maybe move it somewhere else
+/// Replace `[$left | $right]` with `$left` or `$right` depending on `$when`.
+/// If `$when` is true, `$left` is used, otherwise `$right` is used.
+/// This is NOT recursive, so in only replaces in one level of tokens
+/// this means that `[par_iter | iter]` will work, but `{ [par_iter | iter] }` will not
+macro_rules! replace_when {
+    ($when:expr, $($tokens:tt)*) => {
+        if $when {
+            replace_when!(@replace_left [] $($tokens)*)
+        } else {
+            replace_when!(@replace_right [] $($tokens)*)
+        }
+    };
+
+    (@replace_left [ $($current:tt)* ]) => {
+        $($current)*
+    };
+    (@replace_left [ $($current:tt)* ] [$left:ident | $right:ident] $($rest:tt)*) => {
+        replace_when!(@replace_left [$($current)* $left] $($rest)*)
+    };
+    (@replace_left [ $($current:tt)* ] $head:tt $($rest:tt)*) => {
+        replace_when!(@replace_left [$($current)* $head] $($rest)*)
+    };
+
+    (@replace_right [ $($current:tt)* ]) => {
+        $($current)*
+    };
+    (@replace_right [ $($current:tt)* ] [$left:ident | $right:ident] $($rest:tt)*) => {
+        replace_when!(@replace_right [$($current)* $right] $($rest)*)
+    };
+    (@replace_right [ $($current:tt)* ] $head:tt $($rest:tt)*) => {
+        replace_when!(@replace_right [$($current)* $head] $($rest)*)
+    };
+}
+
 const MAX_HASH_LENGTH: usize = 64; // max for SHA-256 hex
 
+// Arc allows me to edit something without mutable reference, and is also thread-safe
+// but that something NEEDS to be thread-safe (HashMap is not, thats why I use DashMap)
 /// Main configuration and execution type for file hashing.
 ///
 /// Use setters to configure behavior, then call [`FileList::run`] to execute.
@@ -38,13 +71,13 @@ pub struct FileList {
     use_color: bool,
     use_parallel: bool,
     output: Option<PathBuf>,
+    force: bool,
+    // these are private (no setter or getter)
     cache: Arc<DashMap<PathBuf, String>>,
     depth_cache: Arc<DashMap<PathBuf, i32>>,
     progress_bar: Option<Arc<ProgressBar>>,
 }
 
-// Arc allows me to edit something without mutable reference, and is also thread-safe
-// but that something NEEDS to be thread-safe (HashMap is not, thats why I use DashMap)
 impl Default for FileList {
     fn default() -> Self {
         Self {
@@ -60,7 +93,7 @@ impl Default for FileList {
             use_color: false,
             use_parallel: true,
             output: None,
-            // these are private (no setter or getter)
+            force: false,
             cache: Arc::new(DashMap::new()),
             depth_cache: Arc::new(DashMap::new()),
             progress_bar: None,
@@ -117,6 +150,9 @@ impl FileList {
     pub fn output(&self) -> Option<&PathBuf> {
         self.output.as_ref()
     }
+    pub fn force(&self) -> bool {
+        self.force
+    }
 
     // Setters
     pub fn set_no_hash(&mut self, value: bool) -> &mut Self {
@@ -167,6 +203,10 @@ impl FileList {
         self.output = path.map(|p| p.into().clean());
         self
     }
+    pub fn set_force(&mut self, force: bool) -> &mut Self {
+        self.force = force;
+        self
+    }
 }
 
 // Public Functions
@@ -184,23 +224,10 @@ impl FileList {
             self.fmt_line(path, &hash)
         }
     }
-    // TODO: because of parallel, when hashing a directory, one thread will start hashing a file inside of directory from hash_dir
-    // but another thread will also start hashing that same file from run (get_all_paths returned it), so we hash it twice
 
-    /// Execute hashing for the provided paths.
-    ///
-    /// This will:
-    /// - Expand directories (if recursive)
-    /// - Filter hidden files (unless `all` is true)
-    /// - Hash files and/or directories
-    /// - Optionally show a progress bar
-    /// - Print results to stdout or a file
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if writing to the output file fails.
-    pub fn run(&mut self, paths: Vec<PathBuf>) -> io::Result<()> {
+    pub fn hash_paths(&mut self, paths: Vec<PathBuf>) -> Vec<String> {
         let real_paths = self.get_output_paths(&paths);
+
         if self.use_progress_bar {
             // create a progress bar
             let pb = ProgressBar::new(real_paths.len() as u64);
@@ -217,28 +244,62 @@ impl FileList {
 
         // cache every single path, in such order that we never hash the same file twice
         // don't bother caching stuff if `no_hash` is true
-        if self.use_parallel && !self.no_hash {
+        if !self.no_hash {
             for set in self.get_hash_dependencies(&paths) {
-                set.par_iter().for_each(|p| {
-                    self.hash(p);
-                });
-            }
-        } else if !self.no_hash {
-            for set in self.get_hash_dependencies(&paths) {
-                set.iter().for_each(|p| {
-                    self.hash(p);
-                });
+                replace_when! {
+                    self.use_parallel,
+                    set.[par_iter | iter]().for_each(|p| {
+                        self.hash(p);
+                    })
+                };
             }
         }
 
         // convert every path into a hash, and collect as a vector, so order is preserved
-        let result: Vec<String> = if self.use_parallel {
-            real_paths.par_iter().map(|path| self.hash(path)).collect()
-        } else {
-            real_paths.iter().map(|path| self.hash(path)).collect()
+        let result: Vec<String> = replace_when! {
+            self.use_parallel,
+            real_paths.[par_iter | iter]().map(|path| self.hash(path)).collect()
         };
 
-        if let Some(output) = self.output.as_ref() {
+        result
+    }
+
+    /// Execute hashing for the provided paths.
+    ///
+    /// This will:
+    /// - Expand directories (if recursive)
+    /// - Filter hidden files (unless `all` is true)
+    /// - Hash files and/or directories
+    /// - Optionally show a progress bar
+    /// - Print results to stdout or a file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if writing to the output file fails.
+    pub fn run(&mut self, paths: Vec<PathBuf>) -> io::Result<()> {
+        if let Some(output) = &self.output {
+            if output.exists() && !self.force {
+                if self.use_color {
+                    eprintln!(
+                        "{}: output file \"{}\" already exists.\n\
+                    If you want to overwrite it, use the -f / --force flag.",
+                        "Error".red(),
+                        self.path_to_string(output).bold()
+                    );
+                } else {
+                    eprintln!(
+                        "Error: output file \"{}\" already exists.\n\
+                    If you want to overwrite it, use the -f / --force flag.",
+                        self.path_to_string(output)
+                    );
+                }
+                std::process::exit(1);
+            }
+        }
+
+        let result = self.hash_paths(paths);
+
+        if let Some(output) = &self.output {
             let mut file = File::create(output).unwrap();
             for line in result {
                 file.write_all(line.as_bytes()).unwrap();
@@ -257,89 +318,10 @@ impl FileList {
         }
         Ok(())
     }
-
-    /// Convert a path into its display form.
-    ///
-    /// Directories are suffixed with `/`.
-    pub fn path_to_string(&self, path: &PathBuf) -> String {
-        if path.is_dir() {
-            format!("{}/", path.display())
-        } else {
-            path.display().to_string()
-        }
-    }
 }
 
 // Actual Logic, all private
 impl FileList {
-    /// Hash a file
-    fn hash_file(&self, path: &PathBuf) -> io::Result<String> {
-        let file = File::open(path)?;
-        let mut reader = BufReader::new(file);
-        let mut hasher = Sha256::new();
-
-        let mut buffer = [0u8; 8192];
-        while let Ok(n) = reader.read(&mut buffer) {
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-
-        let hash = hex::encode(hasher.finalize());
-
-        Ok(hash)
-    }
-
-    /// Hash a directory <br>
-    /// The way this works is: <br>
-    /// it will hash everything inside of the directory,
-    /// sort all of those hashes, and then hash them all together
-    fn hash_dir(&self, path: &PathBuf) -> io::Result<String> {
-        let func = |entry: fs::DirEntry| {
-            if !self.all && entry.is_hidden() {
-                return None;
-            }
-            let path = entry.path().clean();
-
-            // ignore the output file, because we cannot hash it since we dont know what it is yet
-            if self.output.as_ref() == Some(&path) {
-                return None;
-            }
-
-            let hash = self.hash_no_error(&path);
-            if !hash.starts_with("ERROR:") {
-                return Some(hash);
-            } else {
-                return None;
-            }
-        };
-        let mut hashes: Vec<String> = if self.use_parallel {
-            fs::read_dir(path)?
-                .filter_map(Result::ok)
-                .par_bridge()
-                .filter_map(func)
-                .collect()
-        } else {
-            fs::read_dir(path)?
-                .filter_map(Result::ok)
-                .filter_map(func)
-                .collect()
-        };
-
-        // sort the hashes, because order in which fd::read_dir returns files is not consistent across platforms
-        hashes.sort_unstable();
-        // hash all of the hashes together
-        let mut hasher = Sha256::new();
-        for h in hashes {
-            hasher.update(h.as_bytes());
-        }
-
-        let hash = hex::encode(hasher.finalize());
-
-        Ok(hash)
-    }
-
     /// Hash a file or directory, and cache the result
     /// Return "ERROR: <error>" if there is an error
     fn hash_no_error(&self, path: &PathBuf) -> String {
@@ -364,24 +346,71 @@ impl FileList {
         hash
     }
 
-    /// Handle progress bar / progress logs
-    fn handle_progress(&self, path: &PathBuf, hash: &str) {
-        if self.use_progress_bar
-            && let Some(pb) = &self.progress_bar
-        {
-            pb.inc(1);
+    /// Hash a directory <br>
+    /// The way this works is: <br>
+    /// it will hash everything inside of the directory,
+    /// sort all of those hashes, and then hash them all together
+    fn hash_dir(&self, path: &PathBuf) -> io::Result<String> {
+        let mut hashes: Vec<String> = replace_when! {
+            self.use_parallel,
+            fs::read_dir(path)?
+                .filter_map(Result::ok)
+                // HACK: if use_parallel is false, I call by_ref in here, to effectively do nothing,
+                // because i need to call par_bridge if use_parallel is true, but not call it when use_parallel is false
+                .[par_bridge | by_ref]()
+                .filter_map(|entry| {
+                    if !self.all && entry.is_hidden() {
+                        return None;
+                    }
+                    let path = entry.path().clean();
+
+                    // ignore the output file, because we cannot hash it since we dont know what it is yet
+                    if self.output.as_ref() == Some(&path) {
+                        return None;
+                    }
+
+                    let hash = self.hash_no_error(&path);
+                    if !hash.starts_with("ERROR:") {
+                        return Some(hash);
+                    } else {
+                        return None;
+                    }
+                })
+                .collect()
+        };
+
+        // sort the hashes, because order in which fd::read_dir returns files is not consistent across platforms
+        hashes.sort_unstable();
+        // hash all of the hashes together
+        let mut hasher = Sha256::new();
+        for h in hashes {
+            hasher.update(h.as_bytes());
         }
 
-        if self.use_progress_hash {
-            if self.use_color {
-                self.eprint_respect_progress(self.fmt_line(path, hash).yellow().dim());
-            } else {
-                self.eprint_respect_progress(self.fmt_line(path, hash));
-            }
-        }
+        let hash = hex::encode(hasher.finalize());
+
+        Ok(hash)
     }
 
-    // TODO: dont filter out p when filtering out hidden files, instead of weird mid_depth thing
+    /// Hash a file
+    fn hash_file(&self, path: &PathBuf) -> io::Result<String> {
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+        let mut hasher = Sha256::new();
+
+        let mut buffer = [0u8; 8192];
+        while let Ok(n) = reader.read(&mut buffer) {
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+        }
+
+        let hash = hex::encode(hasher.finalize());
+
+        Ok(hash)
+    }
+
     /// will return a list of all paths that this program should output
     /// So every path that the user wants to see (not necessarily all paths that we should hash)
     fn get_output_paths(&self, paths: &Vec<PathBuf>) -> Vec<PathBuf> {
@@ -392,16 +421,12 @@ impl FileList {
                     // either allows two iterators to be the same type
                     Either::Left(
                         WalkDir::new(p)
-                            // don't return the directory itself
-                            .min_depth(1)
                             .into_iter()
-                            // filter out hidden files if --all is not set
-                            .filter_entry(|e| self.all || !e.is_hidden())
+                            // filter out hidden files if `all` is not set, and if they are not the root
+                            // so if the user gives .dir, I will include it even without --all
+                            .filter_entry(|e| self.all || e.depth() == 0 || !e.is_hidden())
                             .filter_map(Result::ok)
                             .map(|e| e.into_path()) // convert to PathBuf
-                            // add the directory itself AFTER the hidden files check
-                            // so if the user gave us .dir, we will include it even without --all
-                            .chain(std::iter::once(p.clone()))
                             // filter out directories if --directory is not set
                             .filter(|p| self.hash_directory || !p.is_dir()),
                     )
@@ -423,12 +448,38 @@ impl FileList {
         real_paths
     }
 
+    // TODO: maybe do this in parallel (paths.par_iter())
+    // get a list which says in what order the paths should be hashed
+    fn get_hash_dependencies(&self, paths: &Vec<PathBuf>) -> Vec<HashSet<PathBuf>> {
+        // BTreeMap is a sorted HashMap
+        let mut dependencies: BTreeMap<i32, HashSet<PathBuf>> = BTreeMap::new();
+
+        for p in paths {
+            // if you give a file to WalkDir, it will just return it
+            WalkDir::new(&p)
+                .into_iter()
+                .filter_entry(|e| self.all || e.depth() == 0 || !e.is_hidden())
+                .filter_map(Result::ok)
+                .filter(|e| self.hash_directory || !e.file_type().is_dir())
+                .for_each(|e| {
+                    let path = e.path().clean();
+                    let subtree_depth = self.max_subtree_depth(&path);
+                    // get the set at that depth, or insert an empty one there
+                    let set = dependencies.entry(subtree_depth).or_default();
+                    set.insert(path);
+                });
+        }
+
+        // get all of the values (which are sorted by depth) and collect them to Vec
+        dependencies.into_values().collect()
+    }
+
     /// Returns the maximum depth of descendants inside `path`.
     ///
     /// Depth is relative to `path`:
     /// - A file returns 0.
     /// - An empty directory returns 0.
-    /// - A directory containing `a/b/c` returns 3.
+    /// - A `dir` that has `dir/a/b/c` returns 3.
     /// - Only counts hidden files if `all` is true
     fn max_subtree_depth(&self, path: &PathBuf) -> i32 {
         let path = path.clean();
@@ -455,40 +506,21 @@ impl FileList {
         self.depth_cache.insert(path, max_depth);
 
         max_depth
-        // WalkDir::new(path)
-        //     .into_iter()
-        //     .filter_map(|e| e.ok())
-        //     .filter(|e| self.all || !e.is_hidden())
-        //     .fold(0, |current_max, e| max(current_max, e.depth()))
     }
 
-    // TODO: maybe do this in parallel (paths.par_iter())
-    // get a list which says in what order the paths should be hashed
-    fn get_hash_dependencies(&self, paths: &Vec<PathBuf>) -> Vec<HashSet<PathBuf>> {
-        // BTreeMap is a sorted HashMap
-        let mut dependencies: BTreeMap<i32, HashSet<PathBuf>> = BTreeMap::new();
-
-        // TODO: make this respect all the settings
-        // TODO: right now, if i give a hidden file as an argument, get_output_paths will keep it regardless of --all
-        // But do i keep it here? when i implement filtering of hidden files
-        for p in paths {
-            // if you give a file to WalkDir, it will just return it
-            WalkDir::new(&p)
-                .into_iter()
-                .filter_entry(|e| self.all || !e.is_hidden() || e.depth() == 0)
-                .filter_map(Result::ok)
-                .filter(|e| self.hash_directory || !e.file_type().is_dir())
-                .for_each(|e| {
-                    let path = e.path().clean();
-                    let subtree_depth = self.max_subtree_depth(&path);
-                    // get the set at that depth, or insert an empty one there
-                    let set = dependencies.entry(subtree_depth).or_default();
-                    set.insert(path);
-                });
+    /// Handle progress bar / progress logs
+    fn handle_progress(&self, path: &PathBuf, hash: &str) {
+        if let Some(pb) = &self.progress_bar {
+            pb.inc(1);
         }
 
-        // get all of the values (which are sorted by depth) and collect them to Vec
-        dependencies.into_values().collect()
+        if self.use_progress_hash {
+            if self.use_color {
+                self.eprint_respect_progress(self.fmt_line(path, hash).yellow().dim());
+            } else {
+                self.eprint_respect_progress(self.fmt_line(path, hash));
+            }
+        }
     }
 
     // format path and hash to be shown according to the flags
@@ -508,7 +540,7 @@ impl FileList {
     /// if I print regularly, text will combine with the progress bar and make everything weird
     /// so text will be like
     /// abc123 file.txt====>    ] 0/69
-    /// Note: s should end with `\n`, otherwise weird stuff will happen
+    /// Note: s should end with `\n`
     fn print_to_respect_progress(
         &self,
         out: &mut impl Write,
@@ -532,6 +564,17 @@ impl FileList {
     fn eprint_respect_progress(&self, s: impl std::fmt::Display) {
         self.print_to_respect_progress(&mut io::stderr(), s)
             .unwrap();
+    }
+
+    /// Convert a path into its display form.
+    ///
+    /// Directories are suffixed with `/`.
+    fn path_to_string(&self, path: &PathBuf) -> String {
+        if path.is_dir() {
+            format!("{}/", path.display())
+        } else {
+            path.display().to_string()
+        }
     }
 }
 

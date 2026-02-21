@@ -1,9 +1,10 @@
 - [ ] Make progress bar check file sizes, instead of advancing only when it finishes a single file
 - [ ] Optimize it somehow, maybe use multiple threads or something like that
 - [x] Display progress bar in stderr, not stdout (maybe use different progress bar library)
-- [ ] TODO: separate run into a function that hashes many paths and returns `Vec<String>`
-- [ ] TODO: canonicalize paths that get cached, so I never hash same file twice
+- [ ] Separate run into a function that hashes many paths and returns `Vec<String>`
+- [ ] Canonicalize paths that get cached, so I never hash same file twice
+- [ ] Check if it works with `..` paths (parent paths)
 - [ ] Test if it works correctly with symlinks
 - [ ] In README, write exactly how this works (what affects the hash, what doesn't)
       because right now its not clear at all (like -a changes the hash of directories, but its not documented, or do error files like no_read affect the hash)
-
+- [ ] Support /dev/fd/... files (so `filelist <(echo "hi")` works)
