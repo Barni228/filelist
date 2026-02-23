@@ -9,7 +9,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::{self, File},
     io::{self, BufReader, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 use walkdir::WalkDir;
@@ -276,24 +276,25 @@ impl FileList {
     ///
     /// Returns an error if writing to the output file fails.
     pub fn run(&mut self, paths: Vec<PathBuf>) -> io::Result<()> {
-        if let Some(output) = &self.output {
-            if output.exists() && !self.force {
-                if self.use_color {
-                    eprintln!(
-                        "{}: output file \"{}\" already exists.\n\
+        if let Some(output) = &self.output
+            && output.exists()
+            && !self.force
+        {
+            if self.use_color {
+                eprintln!(
+                    "{}: output file \"{}\" already exists.\n\
                     If you want to overwrite it, use the -f / --force flag.",
-                        "Error".red(),
-                        self.path_to_string(output).bold()
-                    );
-                } else {
-                    eprintln!(
-                        "Error: output file \"{}\" already exists.\n\
+                    "Error".red(),
+                    self.path_to_string(output).bold()
+                );
+            } else {
+                eprintln!(
+                    "Error: output file \"{}\" already exists.\n\
                     If you want to overwrite it, use the -f / --force flag.",
-                        self.path_to_string(output)
-                    );
-                }
-                std::process::exit(1);
+                    self.path_to_string(output)
+                );
             }
+            std::process::exit(1);
         }
 
         let result = self.hash_paths(paths);
@@ -370,9 +371,9 @@ impl FileList {
 
                     let hash = self.hash_no_error(&path);
                     if !hash.starts_with("ERROR:") {
-                        return Some(hash);
+                        Some(hash)
                     } else {
-                        return None;
+                        None
                     }
                 })
                 .collect()
@@ -413,7 +414,7 @@ impl FileList {
 
     /// will return a list of all paths that this program should output
     /// So every path that the user wants to see (not necessarily all paths that we should hash)
-    fn get_output_paths(&self, paths: &Vec<PathBuf>) -> Vec<PathBuf> {
+    fn get_output_paths(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
         let mut real_paths: Vec<PathBuf> = paths
             .iter()
             .flat_map(|p| {
@@ -493,7 +494,7 @@ impl FileList {
     }
 
     /// Handle progress bar / progress logs
-    fn handle_progress(&self, path: &PathBuf, hash: &str) {
+    fn handle_progress(&self, path: &Path, hash: &str) {
         if let Some(pb) = &self.progress_bar {
             pb.inc(1);
         }
@@ -508,7 +509,7 @@ impl FileList {
     }
 
     // format path and hash to be shown according to the flags
-    fn fmt_line(&self, path: &PathBuf, hash: &str) -> String {
+    fn fmt_line(&self, path: &Path, hash: &str) -> String {
         let path_formatted = self.path_to_string(path);
         if self.no_hash {
             return format!("{path_formatted}\n");
@@ -553,7 +554,7 @@ impl FileList {
     /// Convert a path into its display form.
     ///
     /// Directories are suffixed with `/`.
-    fn path_to_string(&self, path: &PathBuf) -> String {
+    fn path_to_string(&self, path: &Path) -> String {
         if path.is_dir() {
             format!("{}/", path.display())
         } else {

@@ -249,9 +249,7 @@ fn test_pass_hidden() {
 #[test]
 fn test_same_files() {
     assert_eq!(
-        concat!(
-            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
-        ),
+        "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
         run(["test_files/regular", "test_files/regular"])
     );
 }
@@ -317,7 +315,7 @@ fn test_hash_directory_all() {
 
 #[test]
 fn test_progress_hash() {
-    let same_unordered = vec!["-0", "-a", "-l12", "-s=___", "-d", "--parallel"];
+    let same_unordered = ["-0", "-a", "-l12", "-s=___", "-d", "--parallel"];
     // powerset will give us all possible combinations, like
     for i in same_unordered.iter().powerset() {
         let output = cmd_output(["-e", "test_files"].iter().chain(i));
@@ -330,7 +328,7 @@ fn test_progress_hash() {
 
 #[test]
 fn test_progress_hash_file() {
-    let same_output = vec!["-0", "-a", "-l12", "-s=___", "-d"];
+    let same_output = ["-0", "-a", "-l12", "-s=___", "-d"];
 
     for i in same_output.iter().powerset() {
         let file = NamedTempFile::new().unwrap();
@@ -350,7 +348,7 @@ fn test_progress_hash_file() {
 
 #[test]
 fn test_progress_hash_no_recursion() {
-    let same_output = vec!["-a", "-l12", "-s=___"];
+    let same_output = ["-a", "-l12", "-s=___"];
 
     for i in same_output.iter().powerset() {
         let output = cmd_output(["-eR", "test_files"].iter().chain(i.clone()));

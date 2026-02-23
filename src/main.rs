@@ -34,7 +34,7 @@ fn main() {
     let paths: Vec<PathBuf> = matches
         .get_many::<PathBuf>("PATHS")
         .unwrap()
-        .map(|p| p.clone())
+        .cloned()
         .collect();
 
     fl.run(paths).unwrap();
@@ -48,7 +48,7 @@ fn get_clap_command() -> clap::Command {
         arg!(-o --output <FILE> "Output file").value_parser(value_parser!(PathBuf)),
         arg!(-l --length <LEN> "Length of hashes")
             .default_value("64")
-            .value_parser(value_parser!(i32).range(0..=64 as i64)),
+            .value_parser(value_parser!(i32).range(0..=64_i64)),
         arg!(-'0' --"no-hash" "Don't hash files"),
         arg!(-a --all "Include hidden files"),
         // overrides with will make it so that when this is specified, the other one gets forgotten
