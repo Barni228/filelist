@@ -393,6 +393,7 @@ impl FileList {
 
     /// Hash a file
     fn hash_file(&self, path: &PathBuf) -> io::Result<String> {
+        // std::thread::sleep(std::time::Duration::from_millis(1000));
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
         let mut hasher = Sha256::new();
@@ -476,14 +477,15 @@ impl FileList {
                                 break;
                             }
                         }
-                        dependencies.entry(0).or_default().insert(e.into_path());
+                        // dependencies.entry(0).or_default().insert(e.into_path());
+                        dependencies.entry(0).or_default().insert(e.path().clean());
                     }
                 });
         }
 
         // convert depths HashMap to dependencies BTreeMap
         for (p, depth) in depths {
-            dependencies.entry(depth).or_default().insert(p);
+            dependencies.entry(depth).or_default().insert(p.clean());
         }
 
         // get all of the values (which are sorted by depth) and collect them to Vec

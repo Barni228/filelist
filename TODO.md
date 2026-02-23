@@ -19,4 +19,5 @@
 
 ## Bugs
 
-- [ ] `filelist ~/Library` will be very slow, specifically `get_hash_dependencies` takes way to long to finish on such a big dir
+- [ ] `filelist ~/Library` will be very slow, add a `break` to hash_file hashing loop and try to hash Library (with `-dp` flags preferably)
+      so that it does not take ages to finish

@@ -59,14 +59,40 @@ fn test_simple_cli() {
 }
 
 #[test]
+fn test_clean_path() {
+    for i in [".", "./.", "./././", "./dir/..", "dir/./..", "dir/.."] {
+        let output = Command::cargo_bin("filelist")
+            .unwrap()
+            .current_dir("test_files")
+            .args(["-ed", i])
+            .output()
+            .unwrap();
+
+        assert!(output.status.success());
+        let expected = concat!(
+            "ce0d379ccd77402b64055d6852c6e1a11485206517da05c988309fa6029e0e20  ./\n",
+            "11f9c53c2abc7d5a9f442687280f80bd5419feaf55af2e598e26d9b285d63ffd  dir/\n",
+            "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  dir/regular\n",
+            "ERROR: Permission denied (os error 13)  no_read\n",
+            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  regular\n",
+        );
+        assert_eq!(expected, String::from_utf8(output.stdout).unwrap());
+        assert_eq!(
+            bytes_to_vec_sorted(expected),
+            bytes_to_vec_sorted(output.stderr)
+        )
+    }
+}
+
+#[test]
 fn test_no_args() {
-    let out = Command::cargo_bin("filelist")
+    let output = Command::cargo_bin("filelist")
         .unwrap()
         .current_dir("test_files")
         .output()
         .unwrap();
 
-    assert!(out.status.success());
+    assert!(output.status.success());
 
     assert_eq!(
         concat!(
@@ -74,7 +100,7 @@ fn test_no_args() {
             "ERROR: Permission denied (os error 13)  no_read\n",
             "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  regular\n",
         ),
-        String::from_utf8(out.stdout).unwrap()
+        String::from_utf8(output.stdout).unwrap()
     );
 }
 
