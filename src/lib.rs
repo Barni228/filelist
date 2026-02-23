@@ -6,8 +6,7 @@ use path_clean::PathClean;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
-    cmp::max,
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs::{self, File},
     io::{self, BufReader, Read, Write},
     path::PathBuf,
@@ -74,7 +73,6 @@ pub struct FileList {
     force: bool,
     // these are private (no setter or getter)
     cache: Arc<DashMap<PathBuf, String>>,
-    depth_cache: Arc<DashMap<PathBuf, i32>>,
     progress_bar: Option<Arc<ProgressBar>>,
 }
 
@@ -95,7 +93,6 @@ impl Default for FileList {
             output: None,
             force: false,
             cache: Arc::new(DashMap::new()),
-            depth_cache: Arc::new(DashMap::new()),
             progress_bar: None,
         }
     }
@@ -227,10 +224,12 @@ impl FileList {
 
     pub fn hash_paths(&mut self, paths: Vec<PathBuf>) -> Vec<String> {
         let real_paths = self.get_output_paths(&paths);
+        let dependencies = self.get_hash_dependencies(&paths);
 
+        // create a progress bar
         if self.use_progress_bar {
-            // create a progress bar
-            let pb = ProgressBar::new(real_paths.len() as u64);
+            let len = dependencies.iter().fold(0, |acc, s| acc + s.len());
+            let pb = ProgressBar::new(len as u64);
             // here are all style options: https://docs.rs/indicatif/0.18.4/indicatif/index.html#templates
             pb.set_style(
                 ProgressStyle::with_template("[{bar:60}] {pos}/{len} {msg} {eta}")
@@ -245,7 +244,7 @@ impl FileList {
         // cache every single path, in such order that we never hash the same file twice
         // don't bother caching stuff if `no_hash` is true
         if !self.no_hash {
-            for set in self.get_hash_dependencies(&paths) {
+            for set in dependencies {
                 replace_when! {
                     self.use_parallel,
                     set.[par_iter | iter]().for_each(|p| {
@@ -431,7 +430,6 @@ impl FileList {
                             .filter(|p| self.hash_directory || !p.is_dir()),
                     )
                 } else {
-                    // clone because clap doesn't give us the ownership over the path
                     Either::Right(std::iter::once(p.clone()))
                 }
             })
@@ -452,60 +450,44 @@ impl FileList {
     // get a list which says in what order the paths should be hashed
     fn get_hash_dependencies(&self, paths: &Vec<PathBuf>) -> Vec<HashSet<PathBuf>> {
         // BTreeMap is a sorted HashMap
-        let mut dependencies: BTreeMap<i32, HashSet<PathBuf>> = BTreeMap::new();
+        let mut dependencies: BTreeMap<usize, HashSet<PathBuf>> = BTreeMap::new();
+        let mut depths: HashMap<PathBuf, usize> = HashMap::new();
 
         for p in paths {
             // if you give a file to WalkDir, it will just return it
-            WalkDir::new(&p)
+            // by default, WalkDir will return directory before its contents (can change with `contents_first`)
+            WalkDir::new(p)
                 .into_iter()
                 .filter_entry(|e| self.all || e.depth() == 0 || !e.is_hidden())
                 .filter_map(Result::ok)
                 .filter(|e| self.hash_directory || !e.file_type().is_dir())
                 .for_each(|e| {
-                    let path = e.path().clean();
-                    let subtree_depth = self.max_subtree_depth(&path);
-                    // get the set at that depth, or insert an empty one there
-                    let set = dependencies.entry(subtree_depth).or_default();
-                    set.insert(path);
+                    if e.file_type().is_dir() {
+                        depths.insert(e.into_path(), 0);
+                    } else {
+                        for (i, parent) in e.path().ancestors().enumerate().skip(1) {
+                            // if someone already gave a higher depth to my parent,
+                            // then that someone also gave a better depth to all of my parents, so break
+                            if let Some(depth) = depths.get_mut(parent)
+                                && *depth < i
+                            {
+                                *depth = i;
+                            } else {
+                                break;
+                            }
+                        }
+                        dependencies.entry(0).or_default().insert(e.into_path());
+                    }
                 });
+        }
+
+        // convert depths HashMap to dependencies BTreeMap
+        for (p, depth) in depths {
+            dependencies.entry(depth).or_default().insert(p);
         }
 
         // get all of the values (which are sorted by depth) and collect them to Vec
         dependencies.into_values().collect()
-    }
-
-    /// Returns the maximum depth of descendants inside `path`.
-    ///
-    /// Depth is relative to `path`:
-    /// - A file returns 0.
-    /// - An empty directory returns 0.
-    /// - A `dir` that has `dir/a/b/c` returns 3.
-    /// - Only counts hidden files if `all` is true
-    fn max_subtree_depth(&self, path: &PathBuf) -> i32 {
-        let path = path.clean();
-
-        if path.is_file() {
-            return 0;
-        }
-        if let Some(depth) = self.depth_cache.get(&path) {
-            return *depth;
-        }
-
-        let max_depth = fs::read_dir(&path)
-            .unwrap()
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| self.all || !e.is_hidden())
-            // -1 if there are no children, or deepest child if there are children
-            .fold(-1, |current_max, e| {
-                max(current_max, self.max_subtree_depth(&e.path()))
-            })
-            // add 1 to get the depth of the directory itself
-            + 1;
-
-        self.depth_cache.insert(path, max_depth);
-
-        max_depth
     }
 
     /// Handle progress bar / progress logs
