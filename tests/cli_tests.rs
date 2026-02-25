@@ -248,10 +248,18 @@ fn test_pass_hidden() {
 
 #[test]
 fn test_same_files() {
-    assert_eq!(
-        "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
-        run(["test_files/regular", "test_files/regular"])
-    );
+    let same_paths = ["test_files/regular", "./test_files/regular"];
+    for i in same_paths.into_iter().cartesian_product(same_paths) {
+        let output = cmd_output(["-e", i.0, i.1]);
+        assert_eq!(
+            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+            String::from_utf8(output.stdout).unwrap()
+        );
+        assert_eq!(
+            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+            String::from_utf8(output.stderr).unwrap()
+        );
+    }
 }
 
 #[test]

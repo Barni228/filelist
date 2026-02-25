@@ -9,6 +9,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::{self, File},
     io::{self, BufReader, Read, Write},
+    ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -69,11 +70,32 @@ pub struct FileList {
     use_progress_bar: bool,
     use_color: bool,
     use_parallel: bool,
-    output: Option<PathBuf>,
+    output: Option<CleanPath>,
     force: bool,
     // these are private (no setter or getter)
-    cache: Arc<DashMap<PathBuf, String>>,
+    cache: Arc<DashMap<CleanPath, String>>,
     progress_bar: Option<Arc<ProgressBar>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct CleanPath {
+    path: PathBuf,
+}
+
+impl<P: AsRef<Path>> From<P> for CleanPath {
+    fn from(value: P) -> Self {
+        Self {
+            path: value.as_ref().clean(),
+        }
+    }
+}
+
+// this makes &CleanPath become &Path
+impl Deref for CleanPath {
+    type Target = Path;
+    fn deref(&self) -> &Self::Target {
+        &self.path
+    }
 }
 
 impl Default for FileList {
@@ -144,8 +166,8 @@ impl FileList {
     pub fn use_color(&self) -> bool {
         self.use_color
     }
-    pub fn output(&self) -> Option<&PathBuf> {
-        self.output.as_ref()
+    pub fn output(&self) -> Option<&Path> {
+        self.output.as_deref()
     }
     pub fn force(&self) -> bool {
         self.force
@@ -196,8 +218,8 @@ impl FileList {
         self.use_color = value;
         self
     }
-    pub fn set_output<P: Into<PathBuf>>(&mut self, path: Option<P>) -> &mut Self {
-        self.output = path.map(|p| p.into().clean());
+    pub fn set_output<P: AsRef<Path>>(&mut self, path: Option<P>) -> &mut Self {
+        self.output = path.map(CleanPath::from);
         self
     }
     pub fn set_force(&mut self, force: bool) -> &mut Self {
@@ -211,15 +233,8 @@ impl FileList {
     /// Hash a single file or directory and return the formatted output line.
     ///
     /// This respects all current configuration flags.
-    pub fn hash(&self, path: &PathBuf) -> String {
-        if self.no_hash {
-            let result = format!("{}\n", self.path_to_string(path));
-            self.handle_progress(path, &result);
-            result
-        } else {
-            let hash = self.hash_no_error(path);
-            self.fmt_line(path, &hash)
-        }
+    pub fn hash(&self, path: &Path) -> String {
+        self.hash_clean(&CleanPath::from(path))
     }
 
     pub fn hash_paths(&mut self, paths: Vec<PathBuf>) -> Vec<String> {
@@ -248,7 +263,7 @@ impl FileList {
                 replace_when! {
                     self.use_parallel,
                     set.[par_iter | iter]().for_each(|p| {
-                        self.hash(p);
+                        self.hash_clean(p);
                     })
                 };
             }
@@ -257,7 +272,7 @@ impl FileList {
         // convert every path into a hash, and collect as a vector, so order is preserved
         let result: Vec<String> = replace_when! {
             self.use_parallel,
-            real_paths.[par_iter | iter]().map(|path| self.hash(path)).collect()
+            real_paths.[par_iter | iter]().map(|path| self.hash_clean(path)).collect()
         };
 
         result
@@ -300,7 +315,7 @@ impl FileList {
         let result = self.hash_paths(paths);
 
         if let Some(output) = &self.output {
-            let mut file = File::create(output).unwrap();
+            let mut file = File::create(&output.path).unwrap();
             for line in result {
                 file.write_all(line.as_bytes()).unwrap();
                 if self.always_print {
@@ -322,26 +337,36 @@ impl FileList {
 
 // Actual Logic, all private
 impl FileList {
+    fn hash_clean(&self, path: &CleanPath) -> String {
+        if self.no_hash {
+            let result = format!("{}\n", self.path_to_string(path));
+            self.handle_progress(path, &result);
+            result
+        } else {
+            let hash = self.hash_no_error(path.clone());
+            self.fmt_line(path, &hash)
+        }
+    }
     /// Hash a file or directory, and cache the result
     /// Return "ERROR: <error>" if there is an error
-    fn hash_no_error(&self, path: &PathBuf) -> String {
-        if let Some(hash) = self.cache.get(path) {
+    fn hash_no_error(&self, path: CleanPath) -> String {
+        if let Some(hash) = self.cache.get(&path) {
             return hash.clone();
         }
-        let hash = if path.is_dir() {
-            match self.hash_dir(path) {
+        let hash = if path.path.is_dir() {
+            match self.hash_dir(&path) {
                 Ok(s) => s,
                 Err(e) => format!("ERROR: {}", e),
             }
         } else {
-            match self.hash_file(path) {
+            match self.hash_file(&path) {
                 Ok(s) => s,
                 Err(e) => format!("ERROR: {}", e),
             }
         };
 
-        self.cache.insert(path.clone(), hash.clone());
-        self.handle_progress(path, &hash);
+        self.handle_progress(&path, &hash);
+        self.cache.insert(path, hash.clone());
 
         hash
     }
@@ -350,7 +375,7 @@ impl FileList {
     /// The way this works is: <br>
     /// it will hash everything inside of the directory,
     /// sort all of those hashes, and then hash them all together
-    fn hash_dir(&self, path: &PathBuf) -> io::Result<String> {
+    fn hash_dir(&self, path: &Path) -> io::Result<String> {
         let mut hashes: Vec<String> = replace_when! {
             self.use_parallel,
             fs::read_dir(path)?
@@ -362,14 +387,14 @@ impl FileList {
                     if !self.all && entry.is_hidden() {
                         return None;
                     }
-                    let path = entry.path().clean();
+                    let entry_path = CleanPath::from(entry.path());
 
                     // ignore the output file, because we cannot hash it since we dont know what it is yet
-                    if self.output.as_ref() == Some(&path) {
+                    if self.output.as_ref() == Some(&entry_path) {
                         return None;
                     }
 
-                    let hash = self.hash_no_error(&path);
+                    let hash = self.hash_no_error(entry_path);
                     if !hash.starts_with("ERROR:") {
                         Some(hash)
                     } else {
@@ -393,8 +418,7 @@ impl FileList {
     }
 
     /// Hash a file
-    fn hash_file(&self, path: &PathBuf) -> io::Result<String> {
-        // std::thread::sleep(std::time::Duration::from_millis(1000));
+    fn hash_file(&self, path: &Path) -> io::Result<String> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
         let mut hasher = Sha256::new();
@@ -414,8 +438,8 @@ impl FileList {
 
     /// will return a list of all paths that this program should output
     /// So every path that the user wants to see (not necessarily all paths that we should hash)
-    fn get_output_paths(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
-        let mut real_paths: Vec<PathBuf> = paths
+    fn get_output_paths(&self, paths: &[PathBuf]) -> Vec<CleanPath> {
+        let mut real_paths: Vec<CleanPath> = paths
             .iter()
             .flat_map(|p| {
                 if self.recursive && p.is_dir() {
@@ -436,8 +460,7 @@ impl FileList {
                 }
             })
             // clean the path, so that ./hi and ./foo/../hi both become just hi
-            // needs path_clean crate
-            .map(|p| p.clean())
+            .map(CleanPath::from)
             // I will add / to directories in the path_to_string function
             .collect();
 
@@ -450,10 +473,10 @@ impl FileList {
 
     // TODO: maybe do this in parallel (paths.par_iter())
     // get a list which says in what order the paths should be hashed
-    fn get_hash_dependencies(&self, paths: &Vec<PathBuf>) -> Vec<HashSet<PathBuf>> {
+    fn get_hash_dependencies(&self, paths: &Vec<PathBuf>) -> Vec<HashSet<CleanPath>> {
         // BTreeMap is a sorted HashMap
-        let mut dependencies: BTreeMap<usize, HashSet<PathBuf>> = BTreeMap::new();
-        let mut depths: HashMap<PathBuf, usize> = HashMap::new();
+        let mut dependencies: BTreeMap<usize, HashSet<CleanPath>> = BTreeMap::new();
+        let mut depths: HashMap<CleanPath, usize> = HashMap::new();
 
         for p in paths {
             // if you give a file to WalkDir, it will just return it
@@ -464,13 +487,17 @@ impl FileList {
                 .filter_map(Result::ok)
                 .filter(|e| self.hash_directory || !e.file_type().is_dir())
                 .for_each(|e| {
+                    let path = CleanPath::from(e.path());
                     if e.file_type().is_dir() {
-                        depths.insert(e.into_path(), 0);
+                        depths.insert(path, 0);
                     } else {
+                        // entry 0 is for all files or empty directories (they dont have any dependencies)
+                        dependencies.entry(0).or_default().insert(path);
+                        // skip the file itself
                         for (i, parent) in e.path().ancestors().enumerate().skip(1) {
                             // if someone already gave a higher depth to my parent,
                             // then that someone also gave a better depth to all of my parents, so break
-                            if let Some(depth) = depths.get_mut(parent)
+                            if let Some(depth) = depths.get_mut(&CleanPath::from(parent))
                                 && *depth < i
                             {
                                 *depth = i;
@@ -478,15 +505,13 @@ impl FileList {
                                 break;
                             }
                         }
-                        // dependencies.entry(0).or_default().insert(e.into_path());
-                        dependencies.entry(0).or_default().insert(e.path().clean());
                     }
                 });
         }
 
         // convert depths HashMap to dependencies BTreeMap
         for (p, depth) in depths {
-            dependencies.entry(depth).or_default().insert(p.clean());
+            dependencies.entry(depth).or_default().insert(p);
         }
 
         // get all of the values (which are sorted by depth) and collect them to Vec
@@ -494,7 +519,8 @@ impl FileList {
     }
 
     /// Handle progress bar / progress logs
-    fn handle_progress(&self, path: &Path, hash: &str) {
+    /// `path` has to be clean, because it will be printed
+    fn handle_progress(&self, path: &CleanPath, hash: &str) {
         if let Some(pb) = &self.progress_bar {
             pb.inc(1);
         }
@@ -509,7 +535,7 @@ impl FileList {
     }
 
     // format path and hash to be shown according to the flags
-    fn fmt_line(&self, path: &Path, hash: &str) -> String {
+    fn fmt_line(&self, path: &CleanPath, hash: &str) -> String {
         let path_formatted = self.path_to_string(path);
         if self.no_hash {
             return format!("{path_formatted}\n");
@@ -554,7 +580,7 @@ impl FileList {
     /// Convert a path into its display form.
     ///
     /// Directories are suffixed with `/`.
-    fn path_to_string(&self, path: &Path) -> String {
+    fn path_to_string(&self, path: &CleanPath) -> String {
         if path.is_dir() {
             format!("{}/", path.display())
         } else {

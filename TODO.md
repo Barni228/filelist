@@ -16,6 +16,7 @@
       As long as its valid path, everyone in the program will just use that dirty path so it works
       (if u give ./././this, WalkDir will just use ./././this prefix for everything it returns)
 - [ ] Decide EXACTLY what -R flag does (`filelist -R .`, what should this do? Nothing?)
+- [ ] Maybe make `-p` the default
 
 ## Bugs
 
