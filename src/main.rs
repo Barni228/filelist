@@ -22,7 +22,6 @@ fn main() {
         .set_all(matches.get_flag("all"))
         .set_recursive(!matches.get_flag("no-recursive"))
         .set_sep(matches.get_one::<String>("separator").unwrap())
-        .set_always_print(matches.get_flag("print"))
         .set_hash_directory(matches.get_flag("directory"))
         .set_use_progress_hash(matches.get_flag("progress-hash"))
         .set_use_progress_bar(matches.get_flag("progress-bar"))
@@ -58,7 +57,6 @@ fn get_clap_command() -> clap::Command {
         // if you want '\t' to be tab is shell, use $'\t'
         arg!(-s --separator <SEP> "Separator between hash and path, has no effect if --no-hash")
             .default_value("  "),
-        arg!(-P --print "always print to stdout, even if --output is set"),
         arg!(-d --directory "Include directories when hashing recursively"),
         arg!(-e --"progress-hash" "print what has been hashed so far to stderr"),
         arg!(-p --"progress-bar" "print progress bar to stderr"),

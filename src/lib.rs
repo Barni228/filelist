@@ -63,7 +63,6 @@ pub struct FileList {
     hash_length: usize,
     sep: String,
     all: bool,
-    always_print: bool,
     hash_directory: bool,
     recursive: bool,
     use_progress_hash: bool,
@@ -105,7 +104,6 @@ impl Default for FileList {
             hash_length: 32,
             sep: String::from("  "),
             all: false,
-            always_print: false,
             hash_directory: false,
             recursive: true,
             use_progress_hash: false,
@@ -144,9 +142,6 @@ impl FileList {
     }
     pub fn all(&self) -> bool {
         self.all
-    }
-    pub fn always_print(&self) -> bool {
-        self.always_print
     }
     pub fn hash_directory(&self) -> bool {
         self.hash_directory
@@ -188,10 +183,6 @@ impl FileList {
     }
     pub fn set_all(&mut self, value: bool) -> &mut Self {
         self.all = value;
-        self
-    }
-    pub fn set_always_print(&mut self, value: bool) -> &mut Self {
-        self.always_print = value;
         self
     }
     pub fn set_hash_directory(&mut self, value: bool) -> &mut Self {
@@ -318,9 +309,6 @@ impl FileList {
             let mut file = File::create(&output.path).unwrap();
             for line in result {
                 file.write_all(line.as_bytes()).unwrap();
-                if self.always_print {
-                    self.print_respect_progress(line);
-                }
             }
         } else {
             for line in result {

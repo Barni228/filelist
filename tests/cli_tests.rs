@@ -206,25 +206,6 @@ fn test_separator() {
 }
 
 #[test]
-fn test_print() {
-    let expected = concat!(
-        "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
-        "ERROR: Permission denied (os error 13)  test_files/no_read\n",
-        "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
-    );
-
-    for i in ["-P", "--print"] {
-        let file = NamedTempFile::new().unwrap();
-        let path = file.path().to_str().unwrap();
-        let out = run(["test_files", "-fo", path, i]);
-        assert_eq!(expected, out);
-        // you can give it a file or path, both work
-        let written = std::fs::read_to_string(file).unwrap();
-        assert_eq!(expected, written);
-    }
-}
-
-#[test]
 fn test_multiple_files() {
     assert_eq!(
         concat!(
@@ -452,8 +433,8 @@ fn test_everything() {
     let path = file.path().to_str().unwrap();
 
     assert_eq!(
-        expected,
-        run(["test_files", "-0arPdl12", "-fo", path, "--separator", "sep"])
+        "",
+        run(["test_files", "-a0dl12", "-fo", path, "--separator", "sep"])
     );
     // you can give it a file or path, both work
     let out = std::fs::read_to_string(file).unwrap();
