@@ -24,7 +24,7 @@ fn main() {
         .set_sep(matches.get_one::<String>("separator").unwrap())
         .set_hash_directory(matches.get_flag("directory"))
         .set_use_progress_hash(matches.get_flag("progress-hash"))
-        .set_use_progress_bar(matches.get_flag("progress-bar"))
+        .set_use_progress_bar(!matches.get_flag("no-progress-bar"))
         .set_use_parallel(!matches.get_flag("no-parallel"))
         .set_use_color(use_color)
         .set_output(matches.get_one::<PathBuf>("output"))
@@ -45,22 +45,24 @@ fn get_clap_command() -> clap::Command {
             .default_value(".")
             .value_parser(value_parser!(PathBuf)),
         arg!(-o --output <FILE> "Output file").value_parser(value_parser!(PathBuf)),
+        arg!(-f --force "Overwrite output file if it exists"),
         arg!(-l --length <LEN> "Length of hashes")
             .default_value("64")
             .value_parser(value_parser!(i32).range(0..=64_i64)),
-        arg!(-'0' --"no-hash" "Don't hash files"),
         arg!(-a --all "Include hidden files"),
+        arg!(-d --directory "Include directory entries in output"),
+        arg!(-'0' --"no-hash" "List files without computing hashes"),
         // overrides with will make it so that when this is specified, the other one gets forgotten
         // basically -r AND -R will never both be true, either both false or one false one true
         arg!(-r --recursive "Hash directories recursively, default").overrides_with("no-recursive"),
         arg!(-R --"no-recursive" "Don't hash directories recursively").overrides_with("recursive"),
-        // if you want '\t' to be tab is shell, use $'\t'
+        arg!(-e --"progress-hash" "print what has been hashed so far to stderr"),
+        arg!(-p --"progress-bar" "print progress bar to stderr").overrides_with("no-progress-bar"),
+        arg!(-P --"no-progress-bar" "Dont print progress bar to stderr")
+            .overrides_with("progress-bar"),
+        // if you want '\t' to be tab in shell, use $'\t'
         arg!(-s --separator <SEP> "Separator between hash and path, has no effect if --no-hash")
             .default_value("  "),
-        arg!(-d --directory "Include directories when hashing recursively"),
-        arg!(-e --"progress-hash" "print what has been hashed so far to stderr"),
-        arg!(-p --"progress-bar" "print progress bar to stderr"),
-        arg!(-f --force "Overwrite output file if it exists"),
         arg!(--color <WHEN> "When to use colors (*auto*, never, always).")
             .default_value("auto")
             .value_parser(["auto", "always", "never"]),
