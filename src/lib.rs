@@ -65,6 +65,7 @@ pub struct FileList {
     all: bool,
     hash_directory: bool,
     recursive: bool,
+    follow_links: bool,
     use_progress_hash: bool,
     use_progress_bar: bool,
     use_color: bool,
@@ -106,6 +107,7 @@ impl Default for FileList {
             all: false,
             hash_directory: false,
             recursive: true,
+            follow_links: false,
             use_progress_hash: false,
             use_progress_bar: false,
             use_color: false,
@@ -149,6 +151,9 @@ impl FileList {
     pub fn recursive(&self) -> bool {
         self.recursive
     }
+    pub fn follow_links(&self) -> bool {
+        self.follow_links
+    }
     pub fn use_progress_hash(&self) -> bool {
         self.use_progress_hash
     }
@@ -191,6 +196,10 @@ impl FileList {
     }
     pub fn set_recursive(&mut self, value: bool) -> &mut Self {
         self.recursive = value;
+        self
+    }
+    pub fn set_follow_links(&mut self, value: bool) -> &mut Self {
+        self.follow_links = value;
         self
     }
     pub fn set_use_progress_hash(&mut self, value: bool) -> &mut Self {
@@ -335,22 +344,29 @@ impl FileList {
             self.fmt_line(path, &hash)
         }
     }
+
     /// Hash a file or directory, and cache the result
     /// Return "ERROR: <error>" if there is an error
+    /// THIS IS THE ONLY CACHED FUNCTION, ALL OTHER FUNCTIONS SHOULD CALL THIS FUNC TO GET THE HASH
     fn hash_no_error(&self, path: CleanPath) -> String {
         if let Some(hash) = self.cache.get(&path) {
             return hash.clone();
         }
-        let hash = if path.path.is_dir() {
-            match self.hash_dir(&path) {
-                Ok(s) => s,
-                Err(e) => format!("ERROR: {}", e),
-            }
+
+        // if we dont follow symlinks and the path is a symlink, hash the target path
+        let hash_result = if path.is_symlink() && !self.follow_links {
+            self.hash_link(&path)
+        } else if path.is_dir() {
+            self.hash_dir(&path)
+        } else if path.is_file() {
+            self.hash_file(&path)
         } else {
-            match self.hash_file(&path) {
-                Ok(s) => s,
-                Err(e) => format!("ERROR: {}", e),
-            }
+            unreachable!()
+        };
+
+        let hash = match hash_result {
+            Ok(s) => s,
+            Err(e) => format!("ERROR: {}", e),
         };
 
         self.handle_progress(&path, &hash);
@@ -424,6 +440,17 @@ impl FileList {
         Ok(hash)
     }
 
+    /// Hash a symlink
+    ///
+    /// This will hash the target path of the symlink (something like "../README.md")
+    fn hash_link(&self, path: &Path) -> io::Result<String> {
+        let target: PathBuf = fs::read_link(path)?;
+        let target_str = target.to_string_lossy().to_string();
+
+        let hash = hex::encode(Sha256::digest(target_str));
+        Ok(hash)
+    }
+
     /// will return a list of all paths that this program should output
     /// So every path that the user wants to see (not necessarily all paths that we should hash)
     fn get_output_paths(&self, paths: &[PathBuf]) -> Vec<CleanPath> {
@@ -434,14 +461,15 @@ impl FileList {
                     // either allows two iterators to be the same type
                     Either::Left(
                         WalkDir::new(p)
+                            .follow_links(self.follow_links)
                             .into_iter()
                             // filter out hidden files if `all` is not set, and if they are not the root
                             // so if the user gives .dir, I will include it even without --all
-                            .filter_entry(|e| self.all || e.depth() == 0 || !e.is_hidden())
+                            .filter_entry(|e| self.all || !e.is_hidden() || e.depth() == 0)
                             .filter_map(Result::ok)
-                            .map(|e| e.into_path()) // convert to PathBuf
                             // filter out directories if --directory is not set
-                            .filter(|p| self.hash_directory || !p.is_dir()),
+                            .filter(|e| self.hash_directory || !e.file_type().is_dir())
+                            .map(|e| e.into_path()), // convert to PathBuf
                     )
                 } else {
                     Either::Right(std::iter::once(p.clone()))
@@ -470,14 +498,17 @@ impl FileList {
             // if you give a file to WalkDir, it will just return it
             // by default, WalkDir will return directory before its contents (can change with `contents_first`)
             WalkDir::new(p)
+                .follow_links(self.follow_links)
                 .into_iter()
-                .filter_entry(|e| self.all || e.depth() == 0 || !e.is_hidden())
+                .filter_entry(|e| self.all || !e.is_hidden() || e.depth() == 0)
                 .filter_map(Result::ok)
                 .filter(|e| self.hash_directory || !e.file_type().is_dir())
                 .for_each(|e| {
                     let path = CleanPath::from(e.path());
+                    // WalkDir DirEntry will only return true if it is dir, or symlink AND `follow_links` is true
                     if e.file_type().is_dir() {
                         depths.insert(path, 0);
+                    // if this is file or file symlink or unfollowed symlink
                     } else {
                         // entry 0 is for all files or empty directories (they dont have any dependencies)
                         dependencies.entry(0).or_default().insert(path);
@@ -504,6 +535,12 @@ impl FileList {
 
         // get all of the values (which are sorted by depth) and collect them to Vec
         dependencies.into_values().collect()
+    }
+
+    /// Return true if the path is a dir, or a followed symlink to a dir
+    #[inline]
+    fn is_dir_no_link(&self, path: &Path) -> bool {
+        path.is_dir() && (!path.is_symlink() || self.follow_links)
     }
 
     /// Handle progress bar / progress logs
@@ -569,7 +606,7 @@ impl FileList {
     ///
     /// Directories are suffixed with `/`.
     fn path_to_string(&self, path: &CleanPath) -> String {
-        if path.is_dir() {
+        if self.is_dir_no_link(path) {
             format!("{}/", path.display())
         } else {
             path.display().to_string()

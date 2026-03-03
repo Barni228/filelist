@@ -193,7 +193,7 @@ fn test_all() {
 
 #[test]
 fn test_separator() {
-    for i in ["-s", "--separator"] {
+    for i in ["--sep", "--separator"] {
         assert_eq!(
             concat!(
                 "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f \t test_files/dir/regular\n",
@@ -303,8 +303,57 @@ fn test_hash_directory_all() {
 }
 
 #[test]
+fn test_symlink() {
+    assert_eq!(
+        concat!(
+            "9279f4a7c1c145d5ae930fda23ef386168f6720b4e0f0d3dee383c5ad8535737  symlink_test_files/dir/inside\n",
+            "2b64c6d9afd8a34ed0dbf35f7de171a8825a50d9f42f05e98fe2b1addf00ab44  symlink_test_files/dir-link\n",
+            "803d20d7842eea06d21fd4268c460341b74079dae74101dfa3054eb54fdf1073  symlink_test_files/link\n",
+        ),
+        run(["symlink_test_files"])
+    );
+
+    assert_eq!(
+        concat!(
+            "d5228f4fec446513faea914e38c3d11b76d10f4697b7e1f6a869bc99139d5314  symlink_test_files/\n",
+            "382e80dff26044e8835c695603ad137d77bbe87244a8329346746565ab38cb91  symlink_test_files/dir/\n",
+            "9279f4a7c1c145d5ae930fda23ef386168f6720b4e0f0d3dee383c5ad8535737  symlink_test_files/dir/inside\n",
+            "2b64c6d9afd8a34ed0dbf35f7de171a8825a50d9f42f05e98fe2b1addf00ab44  symlink_test_files/dir-link\n",
+            "803d20d7842eea06d21fd4268c460341b74079dae74101dfa3054eb54fdf1073  symlink_test_files/link\n",
+        ),
+        run(["symlink_test_files", "-d"])
+    );
+}
+
+#[test]
+fn test_symlink_follow() {
+    for i in ["-s", "--link"] {
+        assert_eq!(
+            concat!(
+                "9279f4a7c1c145d5ae930fda23ef386168f6720b4e0f0d3dee383c5ad8535737  symlink_test_files/dir/inside\n",
+                "9279f4a7c1c145d5ae930fda23ef386168f6720b4e0f0d3dee383c5ad8535737  symlink_test_files/dir-link/inside\n",
+                "9279f4a7c1c145d5ae930fda23ef386168f6720b4e0f0d3dee383c5ad8535737  symlink_test_files/link\n",
+            ),
+            run(["symlink_test_files", i])
+        );
+
+        assert_eq!(
+            concat!(
+                "a44b34cd400925735e609d894df5d62f9102244c6dc408bd4ce87f847f668f0b  symlink_test_files/\n",
+                "382e80dff26044e8835c695603ad137d77bbe87244a8329346746565ab38cb91  symlink_test_files/dir/\n",
+                "9279f4a7c1c145d5ae930fda23ef386168f6720b4e0f0d3dee383c5ad8535737  symlink_test_files/dir/inside\n",
+                "382e80dff26044e8835c695603ad137d77bbe87244a8329346746565ab38cb91  symlink_test_files/dir-link/\n",
+                "9279f4a7c1c145d5ae930fda23ef386168f6720b4e0f0d3dee383c5ad8535737  symlink_test_files/dir-link/inside\n",
+                "9279f4a7c1c145d5ae930fda23ef386168f6720b4e0f0d3dee383c5ad8535737  symlink_test_files/link\n",
+            ),
+            run(["symlink_test_files", "-d", i])
+        );
+    }
+}
+
+#[test]
 fn test_progress_hash() {
-    let same_unordered = ["-0", "-a", "-l12", "-s=___", "-d", "--parallel"];
+    let same_unordered = ["-0", "-a", "-l12", "--sep=___", "-d", "--parallel"];
     // powerset will give us all possible combinations, like
     for i in same_unordered.iter().powerset() {
         let output = cmd_output(["-e", "test_files"].iter().chain(i));
@@ -317,7 +366,7 @@ fn test_progress_hash() {
 
 #[test]
 fn test_progress_hash_file() {
-    let same_output = ["-0", "-a", "-l12", "-s=___", "-d"];
+    let same_output = ["-0", "-a", "-l12", "--sep=___", "-d"];
 
     for i in same_output.iter().powerset() {
         let file = NamedTempFile::new().unwrap();
@@ -337,7 +386,7 @@ fn test_progress_hash_file() {
 
 #[test]
 fn test_progress_hash_no_recursion() {
-    let same_output = ["-a", "-l12", "-s=___"];
+    let same_output = ["-a", "-l12", "--sep=___"];
 
     for i in same_output.iter().powerset() {
         let output = cmd_output(["-eR", "test_files"].iter().chain(i.clone()));

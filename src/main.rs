@@ -21,7 +21,8 @@ fn main() {
         .set_no_hash(matches.get_flag("no-hash"))
         .set_all(matches.get_flag("all"))
         .set_recursive(!matches.get_flag("no-recursive"))
-        .set_sep(matches.get_one::<String>("separator").unwrap())
+        .set_follow_links(matches.get_flag("link"))
+        .set_sep(matches.get_one::<String>("sep").unwrap())
         .set_hash_directory(matches.get_flag("directory"))
         .set_use_progress_hash(matches.get_flag("progress-hash"))
         .set_use_progress_bar(!matches.get_flag("no-progress-bar"))
@@ -52,6 +53,7 @@ fn get_clap_command() -> clap::Command {
         arg!(-a --all "Include hidden files"),
         arg!(-d --directory "Include directory entries in output"),
         arg!(-'0' --"no-hash" "List files without computing hashes"),
+        arg!(-s --link "Follow symlinks"),
         // overrides with will make it so that when this is specified, the other one gets forgotten
         // basically -r AND -R will never both be true, either both false or one false one true
         arg!(-r --recursive "Hash directories recursively, default").overrides_with("no-recursive"),
@@ -61,7 +63,8 @@ fn get_clap_command() -> clap::Command {
         arg!(-P --"no-progress-bar" "Dont print progress bar to stderr")
             .overrides_with("progress-bar"),
         // if you want '\t' to be tab in shell, use $'\t'
-        arg!(-s --separator <SEP> "Separator between hash and path, has no effect if --no-hash")
+        arg!(--sep <SEP> "Separator between hash and path, has no effect if --no-hash")
+            .alias("separator")
             .default_value("  "),
         arg!(--color <WHEN> "When to use colors (*auto*, never, always).")
             .default_value("auto")

@@ -29,11 +29,12 @@ so `abcdef123456` with length 4 will become `abcd`
 
 ### Directories
 
-A directory hash is computed by:
+A directory is hashed like this:
 
-1.  Hashing each file and directory inside the directory
-2.  Sorting those hashes
-3.  Hashing all of those hashes together
+1.  Hash each file and dir in the directory
+2.  Ignore every error
+3.  Sort those hashes
+4.  Hash all of those hashes together
 
 This makes directory hashes stable and order-independent.
 
@@ -43,6 +44,12 @@ file names have no effect on the directory hash, only file content
 The directory hash WILL change depending on if `--all` is set or no, because if `--all` is enabled, hidden files
 in directory will get hashed, while if `--all` is not enabled, then hidden files will be ignored
 This is by design, because usually you don't consider a directory different if it has some weird file like `.DS_Store` added to it by your folder, so if you want to include hidden files make sure to use `--all`
+
+### Symlinks
+
+By default, this will hash the target path of the symlink (something like "../README.md")
+If you want it to hash the thing symlink points to (file or dir), use `--link`
+with `--link`, this treat every symlink as the thing it points to (so same as file or dir)
 
 ## Example
 
