@@ -1,8 +1,7 @@
 - [ ] Make progress bar check file sizes, instead of advancing only when it finishes a single file
 - [ ] Canonicalize paths that get cached, so I never hash same file twice
 - [ ] Check if it works with `..` paths (parent paths)
-- [ ] Test if it works correctly with symlinks (dont follow symlinks by default, make it optional, like -s)
-- [ ] Support /dev/fd/... files (so `filelist <(echo "hi")` works)
+- [ ] Add option to read input from stdin
 
 ## Easy
 
@@ -20,6 +19,8 @@
 
 ## Done
 
+- [x] Support /dev/fd/... files (so `filelist <(echo "hi")` works)
+- [x] Test if it works correctly with symlinks (dont follow symlinks by default, make it optional, like -s)
 - [x] Optimize it somehow, maybe use multiple threads or something like that
 - [x] Display progress bar in stderr, not stdout (maybe use different progress bar library)
 - [x] Separate run into a function that hashes many paths and returns `Vec<String>`

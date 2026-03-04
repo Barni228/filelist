@@ -10,6 +10,7 @@ use std::{
     fs::{self, File},
     io::{self, BufReader, Read, Write},
     ops::Deref,
+    os::unix::fs::FileTypeExt,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -353,12 +354,17 @@ impl FileList {
             return hash.clone();
         }
 
+        // check if it is something like /dev/fd/... (`filelist <(echo hi)`)
+        let is_fd = path
+            .symlink_metadata()
+            .is_ok_and(|meta| meta.file_type().is_fifo());
+
         // if we dont follow symlinks and the path is a symlink, hash the target path
         let hash_result = if path.is_symlink() && !self.follow_links {
             self.hash_link(&path)
         } else if path.is_dir() {
             self.hash_dir(&path)
-        } else if path.is_file() {
+        } else if path.is_file() || is_fd {
             self.hash_file(&path)
         } else {
             unreachable!()
