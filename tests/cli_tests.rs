@@ -249,6 +249,14 @@ fn test_same_files() {
 }
 
 #[test]
+fn test_does_not_exist() {
+    assert_eq!(
+        "ERROR: No such file or directory (os error 2)  test_files/no_exist\n",
+        run(["test_files/no_exist"])
+    );
+}
+
+#[test]
 fn test_files_and_dirs() {
     assert_eq!(
         concat!(

@@ -10,7 +10,6 @@ use std::{
     fs::{self, File},
     io::{self, BufReader, IsTerminal, Read, Write},
     ops::Deref,
-    os::unix::fs::FileTypeExt,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -354,11 +353,6 @@ impl FileList {
             return hash.clone();
         }
 
-        // check if it is something like /dev/fd/... (`filelist <(echo hi)`)
-        let is_fd = path
-            .symlink_metadata()
-            .is_ok_and(|meta| meta.file_type().is_fifo());
-
         // if we dont follow symlinks and the path is a symlink, hash the target path
         let hash_result = if path.as_os_str() == "-" {
             self.hash_stdin()
@@ -366,10 +360,9 @@ impl FileList {
             self.hash_link(&path)
         } else if path.is_dir() {
             self.hash_dir(&path)
-        } else if path.is_file() || is_fd {
-            self.hash_file(&path)
+        // if this is something else, like a file, /dev/fd/* or non existing path, treat it as file
         } else {
-            unreachable!()
+            self.hash_file(&path)
         };
 
         let hash = match hash_result {
@@ -492,7 +485,6 @@ impl FileList {
         } else {
             paths
         };
-        // let dash = [PathBuf::from("-")];
         let mut real_paths: Vec<CleanPath> = paths_not_empty
             .iter()
             .flat_map(|p| {
