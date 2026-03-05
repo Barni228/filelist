@@ -7,7 +7,7 @@
 // ```
 // so left is correct, right is actual output
 
-use assert_cmd::Command;
+use assert_cmd::{Command, assert::OutputAssertExt};
 use crossterm::style::Stylize;
 use itertools::Itertools;
 use std::io::Write;
@@ -349,6 +349,22 @@ fn test_symlink_follow() {
             run(["symlink_test_files", "-d", i])
         );
     }
+}
+
+#[test]
+fn test_stdin() {
+    let expected = "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  -\n";
+
+    Command::cargo_bin("filelist")
+        .unwrap()
+        .arg("-")
+        .pipe_stdin("test_files/regular")
+        .unwrap()
+        .output()
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(expected);
 }
 
 #[test]

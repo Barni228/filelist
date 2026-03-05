@@ -360,7 +360,9 @@ impl FileList {
             .is_ok_and(|meta| meta.file_type().is_fifo());
 
         // if we dont follow symlinks and the path is a symlink, hash the target path
-        let hash_result = if path.is_symlink() && !self.follow_links {
+        let hash_result = if path.as_os_str() == "-" {
+            self.hash_stdin()
+        } else if path.is_symlink() && !self.follow_links {
             self.hash_link(&path)
         } else if path.is_dir() {
             self.hash_dir(&path)
@@ -431,19 +433,7 @@ impl FileList {
     fn hash_file(&self, path: &Path) -> io::Result<String> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
-        let mut hasher = Sha256::new();
-
-        let mut buffer = [0u8; 8192];
-        while let Ok(n) = reader.read(&mut buffer) {
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-
-        let hash = hex::encode(hasher.finalize());
-
-        Ok(hash)
+        self.hash_reader(&mut reader)
     }
 
     /// Hash a symlink
@@ -457,13 +447,45 @@ impl FileList {
         Ok(hash)
     }
 
+    /// Hash stdin
+    fn hash_stdin(&self) -> io::Result<String> {
+        let f = || {
+            let stdin = io::stdin();
+            self.hash_reader(stdin.lock())
+        };
+        if let Some(pb) = self.progress_bar.as_ref() {
+            pb.suspend(f)
+        } else {
+            f()
+        }
+    }
+
+    /// Hash something that implements Read
+    ///
+    /// Could be a file, stdin, or anything else
+    fn hash_reader(&self, mut reader: impl Read) -> io::Result<String> {
+        let mut hasher = Sha256::new();
+
+        let mut buffer = [0u8; 8192];
+        loop {
+            let n = reader.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+        }
+
+        Ok(hex::encode(hasher.finalize()))
+    }
+
     /// will return a list of all paths that this program should output
     /// So every path that the user wants to see (not necessarily all paths that we should hash)
     fn get_output_paths(&self, paths: &[PathBuf]) -> Vec<CleanPath> {
         let mut real_paths: Vec<CleanPath> = paths
             .iter()
             .flat_map(|p| {
-                if self.recursive && p.is_dir() {
+                // "-" is a special argument that means stdin
+                if self.recursive && p.is_dir() && p.as_os_str() != "-" {
                     // either allows two iterators to be the same type
                     Either::Left(
                         WalkDir::new(p)

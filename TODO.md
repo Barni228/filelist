@@ -1,7 +1,11 @@
 - [ ] Make progress bar check file sizes, instead of advancing only when it finishes a single file
 - [ ] Canonicalize paths that get cached, so I never hash same file twice
 - [ ] Check if it works with `..` paths (parent paths)
-- [ ] Add option to read input from stdin
+- [x] Make a `-` argument mean stdin
+- [ ] Make `printf hi | filelist` hash `hi`
+- [ ] `get_hash_dependencies` will ignore non existing files,
+      because `WalkDir` returns `Err` for those and I filter all Errors out
+      I think it should still return them, because I still hash them ("ERROR: ..." is the hash)
 
 ## Easy
 
