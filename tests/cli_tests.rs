@@ -86,9 +86,14 @@ fn test_clean_path() {
 
 #[test]
 fn test_no_args() {
+    // unfortunately, assert_cmd makes filelist think that it has stdin piped to it
+    // `printf "" | filelist`
+    // so because of that, without real terminal I cannot test what it does without stdin piped
+    // so just test that yourself, and here i give it "." (current dir)
     let output = Command::cargo_bin("filelist")
         .unwrap()
         .current_dir("test_files")
+        .arg(".")
         .output()
         .unwrap();
 
@@ -353,7 +358,7 @@ fn test_symlink_follow() {
 
 #[test]
 fn test_stdin() {
-    let expected = "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  -\n";
+    let expected_regular = "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  -\n";
 
     Command::cargo_bin("filelist")
         .unwrap()
@@ -364,7 +369,34 @@ fn test_stdin() {
         .unwrap()
         .assert()
         .success()
-        .stdout(expected);
+        .stdout(expected_regular);
+
+    let expected_hi = "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4  -\n";
+
+    Command::cargo_bin("filelist")
+        .unwrap()
+        .arg("-")
+        .write_stdin("hi")
+        .output()
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(expected_hi);
+}
+
+#[test]
+fn test_stdin_piped() {
+    let expected_regular = "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  -\n";
+
+    Command::cargo_bin("filelist")
+        .unwrap()
+        .pipe_stdin("test_files/regular")
+        .unwrap()
+        .output()
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(expected_regular);
 }
 
 #[test]

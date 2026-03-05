@@ -33,7 +33,7 @@ fn main() {
 
     let paths: Vec<PathBuf> = matches
         .get_many::<PathBuf>("PATHS")
-        .unwrap()
+        .unwrap_or_default()
         .cloned()
         .collect();
 
@@ -43,7 +43,6 @@ fn main() {
 fn get_clap_command() -> clap::Command {
     command!().args([
         arg!([PATHS]... "Paths to scan (can be directories or files)")
-            .default_value(".")
             .value_parser(value_parser!(PathBuf)),
         arg!(-o --output <FILE> "Output file").value_parser(value_parser!(PathBuf)),
         arg!(-f --force "Overwrite output file if it exists"),

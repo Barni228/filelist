@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::{self, File},
-    io::{self, BufReader, Read, Write},
+    io::{self, BufReader, IsTerminal, Read, Write},
     ops::Deref,
     os::unix::fs::FileTypeExt,
     path::{Path, PathBuf},
@@ -481,7 +481,19 @@ impl FileList {
     /// will return a list of all paths that this program should output
     /// So every path that the user wants to see (not necessarily all paths that we should hash)
     fn get_output_paths(&self, paths: &[PathBuf]) -> Vec<CleanPath> {
-        let mut real_paths: Vec<CleanPath> = paths
+        let mut default = [PathBuf::default()];
+        let paths_not_empty = if paths.is_empty() {
+            if !io::stdin().is_terminal() {
+                default[0] = PathBuf::from("-")
+            } else {
+                default[0] = PathBuf::from(".")
+            }
+            &default
+        } else {
+            paths
+        };
+        // let dash = [PathBuf::from("-")];
+        let mut real_paths: Vec<CleanPath> = paths_not_empty
             .iter()
             .flat_map(|p| {
                 // "-" is a special argument that means stdin
@@ -517,12 +529,23 @@ impl FileList {
 
     // TODO: maybe do this in parallel (paths.par_iter())
     // get a list which says in what order the paths should be hashed
-    fn get_hash_dependencies(&self, paths: &Vec<PathBuf>) -> Vec<HashSet<CleanPath>> {
+    fn get_hash_dependencies(&self, paths: &[PathBuf]) -> Vec<HashSet<CleanPath>> {
+        let mut default = [PathBuf::default()];
+        let paths_not_empty = if paths.is_empty() {
+            if !io::stdin().is_terminal() {
+                default[0] = PathBuf::from("-")
+            } else {
+                default[0] = PathBuf::from(".")
+            }
+            &default
+        } else {
+            paths
+        };
         // BTreeMap is a sorted HashMap
         let mut dependencies: BTreeMap<usize, HashSet<CleanPath>> = BTreeMap::new();
         let mut depths: HashMap<CleanPath, usize> = HashMap::new();
 
-        for p in paths {
+        for p in paths_not_empty {
             // if you give a file to WalkDir, it will just return it
             // by default, WalkDir will return directory before its contents (can change with `contents_first`)
             WalkDir::new(p)
