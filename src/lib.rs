@@ -239,7 +239,7 @@ impl FileList {
 
     pub fn hash_paths(&mut self, paths: Vec<PathBuf>) -> Vec<String> {
         let real_paths = self.get_output_paths(&paths);
-        let dependencies = self.get_hash_dependencies(&paths);
+        let dependencies = self.get_hash_dependencies(&real_paths);
 
         // create a progress bar
         if self.use_progress_bar {
@@ -474,8 +474,11 @@ impl FileList {
     /// will return a list of all paths that this program should output
     /// So every path that the user wants to see (not necessarily all paths that we should hash)
     fn get_output_paths(&self, paths: &[PathBuf]) -> Vec<CleanPath> {
+        // this is kind of weird because the type of paths is &[PathBuf], so i cannot modify it
+        // and i have to deal with lifetimes since it is a reference
         let mut default = [PathBuf::default()];
         let paths_not_empty = if paths.is_empty() {
+            // if something is piped to stdin, hash stdin
             if !io::stdin().is_terminal() {
                 default[0] = PathBuf::from("-")
             } else {
@@ -485,6 +488,7 @@ impl FileList {
         } else {
             paths
         };
+
         let mut real_paths: Vec<CleanPath> = paths_not_empty
             .iter()
             .flat_map(|p| {
@@ -494,6 +498,7 @@ impl FileList {
                     Either::Left(
                         WalkDir::new(p)
                             .follow_links(self.follow_links)
+                            .follow_root_links(self.follow_links)
                             .into_iter()
                             // filter out hidden files if `all` is not set, and if they are not the root
                             // so if the user gives .dir, I will include it even without --all
@@ -521,54 +526,54 @@ impl FileList {
 
     // TODO: maybe do this in parallel (paths.par_iter())
     // get a list which says in what order the paths should be hashed
-    fn get_hash_dependencies(&self, paths: &[PathBuf]) -> Vec<HashSet<CleanPath>> {
-        let mut default = [PathBuf::default()];
-        let paths_not_empty = if paths.is_empty() {
-            if !io::stdin().is_terminal() {
-                default[0] = PathBuf::from("-")
-            } else {
-                default[0] = PathBuf::from(".")
-            }
-            &default
-        } else {
-            paths
-        };
+    fn get_hash_dependencies(&self, paths: &[CleanPath]) -> Vec<HashSet<CleanPath>> {
         // BTreeMap is a sorted HashMap
         let mut dependencies: BTreeMap<usize, HashSet<CleanPath>> = BTreeMap::new();
+        // only directories are in this HashMap, files are immediately added to dependencies
         let mut depths: HashMap<CleanPath, usize> = HashMap::new();
 
-        for p in paths_not_empty {
-            // if you give a file to WalkDir, it will just return it
-            // by default, WalkDir will return directory before its contents (can change with `contents_first`)
-            WalkDir::new(p)
-                .follow_links(self.follow_links)
-                .into_iter()
-                .filter_entry(|e| self.all || !e.is_hidden() || e.depth() == 0)
-                .filter_map(Result::ok)
-                .filter(|e| self.hash_directory || !e.file_type().is_dir())
-                .for_each(|e| {
-                    let path = CleanPath::from(e.path());
-                    // WalkDir DirEntry will only return true if it is dir, or symlink AND `follow_links` is true
-                    if e.file_type().is_dir() {
-                        depths.insert(path, 0);
-                    // if this is file or file symlink or unfollowed symlink
-                    } else {
-                        // entry 0 is for all files or empty directories (they dont have any dependencies)
-                        dependencies.entry(0).or_default().insert(path);
-                        // skip the file itself
-                        for (i, parent) in e.path().ancestors().enumerate().skip(1) {
-                            // if someone already gave a higher depth to my parent,
-                            // then that someone also gave a better depth to all of my parents, so break
-                            if let Some(depth) = depths.get_mut(&CleanPath::from(parent))
-                                && *depth < i
-                            {
-                                *depth = i;
-                            } else {
-                                break;
+        for p in paths {
+            if self.is_dir_no_link(p) {
+                // if this dir has already been added, then don't add it again
+                if depths.contains_key(p) {
+                    continue;
+                }
+                // if you give a file to WalkDir, it will just return it
+                // by default, WalkDir will return directory before its contents (can change with `contents_first`)
+                WalkDir::new(&p.path)
+                    .follow_links(self.follow_links)
+                    // this doesn't really matter, because I already make sure that `p`
+                    // is something that needs to be followed by using `is_dir_no_link`
+                    .follow_root_links(self.follow_links)
+                    .into_iter()
+                    .filter_entry(|e| self.all || !e.is_hidden() || e.depth() == 0)
+                    .filter_map(Result::ok)
+                    .for_each(|e| {
+                        let path = CleanPath::from(e.path());
+                        // WalkDir DirEntry will only return true if it is dir, or symlink AND `follow_links` is true
+                        if e.file_type().is_dir() {
+                            depths.insert(path, 0);
+                        // if this is file or file symlink or unfollowed symlink
+                        } else {
+                            // entry 0 is for all files or empty directories (they dont have any dependencies)
+                            dependencies.entry(0).or_default().insert(path);
+                            // skip the file itself
+                            for (i, parent) in e.path().ancestors().enumerate().skip(1) {
+                                // if someone already gave a higher depth to my parent,
+                                // then that someone also gave a better depth to all of my parents, so break
+                                if let Some(depth) = depths.get_mut(&CleanPath::from(parent))
+                                    && *depth < i
+                                {
+                                    *depth = i;
+                                } else {
+                                    break;
+                                }
                             }
                         }
-                    }
-                });
+                    });
+            } else {
+                dependencies.entry(0).or_default().insert(p.clone());
+            }
         }
 
         // convert depths HashMap to dependencies BTreeMap
@@ -583,7 +588,7 @@ impl FileList {
     /// Return true if the path is a dir, or a followed symlink to a dir
     #[inline]
     fn is_dir_no_link(&self, path: &Path) -> bool {
-        path.is_dir() && (!path.is_symlink() || self.follow_links)
+        path.is_dir() && (self.follow_links || !path.is_symlink())
     }
 
     /// Handle progress bar / progress logs
@@ -678,3 +683,6 @@ impl IsHidden for fs::DirEntry {
             .unwrap_or(false)
     }
 }
+
+#[cfg(test)]
+mod tests;

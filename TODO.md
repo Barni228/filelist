@@ -7,12 +7,7 @@
 
 ## Easy
 
-- [ ] don't clean every path, instead only use PathClean where needed (user input)
-      I think I dont actually need to clean any paths at all, since if user gives a weird "dirty" path
-      As long as its valid path, everyone in the program will just use that dirty path so it works
-      (if u give ./././this, WalkDir will just use ./././this prefix for everything it returns)
 - [ ] Decide EXACTLY what -R flag does (`filelist -R .`, what should this do? Nothing?)
-- [ ] Maybe make `-p` the default
 
 ## Bugs
 
@@ -21,6 +16,11 @@
 
 ## Done
 
+- [x] Maybe make `-p` the default
+- [x] don't clean every path, instead only use PathClean where needed (user input)
+      I think I dont actually need to clean any paths at all, since if user gives a weird "dirty" path
+      As long as its valid path, everyone in the program will just use that dirty path so it works
+      (if u give ./././this, WalkDir will just use ./././this prefix for everything it returns)
 - [x] Make a `-` argument mean stdin
 - [x] Make `printf hi | filelist` hash `hi`
 - [x] Support /dev/fd/... files (so `filelist <(echo "hi")` works)
