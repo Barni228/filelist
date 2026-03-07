@@ -7,7 +7,7 @@
 // ```
 // so left is correct, right is actual output
 
-use assert_cmd::{Command, assert::OutputAssertExt};
+use assert_cmd::{Command, prelude::*};
 use crossterm::style::Stylize;
 use itertools::Itertools;
 use std::io::Write;
@@ -54,7 +54,7 @@ fn test_simple_cli() {
             "ERROR: Permission denied (os error 13)  test_files/no_read\n",
             "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
         ),
-        run(["test_files", "-r"])
+        run(["test_files"])
     );
 }
 
@@ -117,7 +117,7 @@ fn test_length_0() {
             "ERROR: Permission denied (os error 13)  test_files/no_read\n",
             "  test_files/regular\n",
         ),
-        run(["test_files", "-rl", "0"])
+        run(["test_files", "-l", "0"])
     );
 }
 
@@ -134,7 +134,7 @@ fn test_length_too_big() {
 fn test_write_file() {
     let file = NamedTempFile::new().unwrap();
     let path = file.path().to_str().unwrap();
-    let out = run(["test_files", "-r", "-fo", path]);
+    let out = run(["test_files", "-fo", path]);
     assert!(out.is_empty());
     let written = std::fs::read_to_string(path).unwrap();
     assert_eq!(
@@ -153,7 +153,7 @@ fn test_output_file_exists() {
     let path = file.path().to_str().unwrap();
     Command::cargo_bin("filelist")
         .unwrap()
-        .args(["-r", "-o", path])
+        .args(["-o", path])
         .assert()
         .failure();
     let written = std::fs::read_to_string(path).unwrap();
@@ -316,6 +316,24 @@ fn test_hash_directory_all() {
 }
 
 #[test]
+fn test_parent_directory() {
+    let same_replaced = ["-0", "-a", "-l12", "--sep=___", "-d"];
+    for i in same_replaced.iter().powerset() {
+        // output should be exactly the same as usual, except that `test_files` is now `..`
+        let expected = run(["test_files"].iter().chain(i.clone())).replace("test_files", "..");
+        Command::cargo_bin("filelist")
+            .unwrap()
+            .current_dir("test_files/dir")
+            .args([".."].iter().chain(i))
+            .output()
+            .unwrap()
+            .assert()
+            .success()
+            .stdout(expected);
+    }
+}
+
+#[test]
 fn test_symlink() {
     assert_eq!(
         concat!(
@@ -410,7 +428,7 @@ fn test_stdin_piped() {
 #[test]
 fn test_progress_hash() {
     let same_unordered = ["-0", "-a", "-l12", "--sep=___", "-d", "--parallel"];
-    // powerset will give us all possible combinations, like
+    // powerset will give us all possible combinations, like for `[a, b]` it will give `[], [a], [b], [a, b]`
     for i in same_unordered.iter().powerset() {
         let output = cmd_output(["-e", "test_files"].iter().chain(i));
 

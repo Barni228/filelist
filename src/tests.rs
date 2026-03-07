@@ -111,6 +111,13 @@ fn test_get_output_paths_link_follow() {
 }
 
 #[test]
+fn test_get_output_paths_does_not_exist() {
+    let fl = FileList::new();
+    let real_paths = fl.get_output_paths(&["test_files/no_exist".into()]);
+    assert_eq!(vec![CleanPath::from("test_files/no_exist"),], real_paths);
+}
+
+#[test]
 fn test_get_hash_dependencies_files() {
     let fl = FileList::new();
     let real_paths = fl.get_output_paths(&["test_files".into()]);
@@ -229,6 +236,17 @@ fn test_get_hash_dependencies_link_follow() {
             ]),
             HashSet::from([CleanPath::from("symlink_test_files")]),
         ],
+        dependencies
+    );
+}
+
+#[test]
+fn test_get_hash_dependencies_does_not_exist() {
+    let fl = FileList::new();
+    let real_paths = fl.get_output_paths(&["test_files/no_exist".into()]);
+    let dependencies = fl.get_hash_dependencies(&real_paths);
+    assert_eq!(
+        vec![HashSet::from([CleanPath::from("test_files/no_exist"),])],
         dependencies
     );
 }

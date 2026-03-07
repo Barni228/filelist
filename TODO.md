@@ -1,9 +1,6 @@
 - [ ] Make progress bar check file sizes, instead of advancing only when it finishes a single file
 - [ ] Canonicalize paths that get cached, so I never hash same file twice
-- [ ] Check if it works with `..` paths (parent paths)
-- [ ] `get_hash_dependencies` will ignore non existing files,
-      because `WalkDir` returns `Err` for those and I filter all Errors out
-      I think it should still return them, because I still hash them ("ERROR: ..." is the hash)
+- [ ] When hashing followed symlinks, instead of hashing their target again get it from cache
 
 ## Easy
 
@@ -16,6 +13,10 @@
 
 ## Done
 
+- [x] Check if it works with `..` paths (parent paths)
+- [x] `get_hash_dependencies` will ignore non existing files,
+      because `WalkDir` returns `Err` for those and I filter all Errors out
+      I think it should still return them, because I still hash them ("ERROR: ..." is the hash)
 - [x] Maybe make `-p` the default
 - [x] don't clean every path, instead only use PathClean where needed (user input)
       I think I dont actually need to clean any paths at all, since if user gives a weird "dirty" path
