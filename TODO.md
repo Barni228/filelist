@@ -4,8 +4,6 @@
 
 ## Easy
 
-- [ ] Decide EXACTLY what -R flag does (`filelist -R .`, what should this do? Nothing?)
-
 ## Bugs
 
 - [ ] `filelist ~/Library` will be very slow, add a `break` to hash_file hashing loop and try to hash Library (with `-dp` flags preferably)
@@ -13,6 +11,7 @@
 
 ## Done
 
+- [x] Decide EXACTLY what -R flag does (`filelist -R .`, what should this do? Nothing?)
 - [x] Check if it works with `..` paths (parent paths)
 - [x] `get_hash_dependencies` will ignore non existing files,
       because `WalkDir` returns `Err` for those and I filter all Errors out

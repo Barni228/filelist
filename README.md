@@ -18,7 +18,7 @@ Here is how this works, and how to use it:
 if you type `filelist` without any arguments, it will default to `.`  
 if you pass a file, it will hash that file  
 if you pass a directory to `filelist`, by default it will hash everything inside of that directory recursively,
-however if you use `-R` (`--no-recursive`) it will not go into directories, and instead it will hash the directories provided (as if you used `-d`)
+if you use `-R` (`--no-recursive`) it will hash exactly what you gave so if you pass `dir`, you will get `dir` hash only
 you can pass multiple paths to this, and it will just hash all of them
 
 ### Files
@@ -47,8 +47,8 @@ This is by design, because usually you don't consider a directory different if i
 
 ### Symlinks
 
-By default, this will hash the target path of the symlink (something like "../README.md")
-If you want it to hash the thing symlink points to (file or dir), use `--link`
+By default, this will hash the target path of the symlink (something like `../README.md`)
+If you want it to hash the thing symlink points to (file or dir), use `--link` (`-s`)
 with `--link`, this treat every symlink as the thing it points to (so same as file or dir)
 
 ## Example

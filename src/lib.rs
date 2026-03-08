@@ -551,6 +551,7 @@ impl FileList {
                     .for_each(|e| {
                         let path = CleanPath::from(e.path());
                         // WalkDir DirEntry will only return true if it is dir, or symlink AND `follow_links` is true
+                        // more efficient than `self.is_dir_no_link(&path)` because WalkDir already knows this info without sys calls
                         if e.file_type().is_dir() {
                             depths.insert(path, 0);
                         // if this is file or file symlink or unfollowed symlink
