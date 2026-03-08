@@ -19,6 +19,7 @@ fn main() {
     fl.set_output(matches.get_one::<PathBuf>("output"))
         .set_hash_length(*matches.get_one::<i32>("length").unwrap() as usize)
         .set_no_hash(matches.get_flag("no-hash"))
+        .set_absolute(matches.get_flag("absolute"))
         .set_all(matches.get_flag("all"))
         .set_recursive(!matches.get_flag("no-recursive"))
         .set_follow_links(matches.get_flag("link"))
@@ -52,6 +53,7 @@ fn get_clap_command() -> clap::Command {
         arg!(-a --all "Include hidden files"),
         arg!(-d --directory "Include directory entries in output"),
         arg!(-'0' --"no-hash" "List files without computing hashes"),
+        arg!(-A --absolute "Convert all paths to absolute paths"),
         arg!(-s --link "Follow symlinks"),
         // overrides with will make it so that when this is specified, the other one gets forgotten
         // basically -r AND -R will never both be true, either both false or one false one true

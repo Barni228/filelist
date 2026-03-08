@@ -64,6 +64,7 @@ pub struct FileList {
     sep: String,
     all: bool,
     hash_directory: bool,
+    absolute: bool,
     recursive: bool,
     follow_links: bool,
     use_progress_hash: bool,
@@ -106,6 +107,7 @@ impl Default for FileList {
             sep: String::from("  "),
             all: false,
             hash_directory: false,
+            absolute: false,
             recursive: true,
             follow_links: false,
             use_progress_hash: false,
@@ -147,6 +149,9 @@ impl FileList {
     }
     pub fn hash_directory(&self) -> bool {
         self.hash_directory
+    }
+    pub fn absolute(&self) -> bool {
+        self.absolute
     }
     pub fn recursive(&self) -> bool {
         self.recursive
@@ -192,6 +197,10 @@ impl FileList {
     }
     pub fn set_hash_directory(&mut self, value: bool) -> &mut Self {
         self.hash_directory = value;
+        self
+    }
+    pub fn set_absolute(&mut self, value: bool) -> &mut Self {
+        self.absolute = value;
         self
     }
     pub fn set_recursive(&mut self, value: bool) -> &mut Self {
@@ -510,6 +519,18 @@ impl FileList {
                     )
                 } else {
                     Either::Right(std::iter::once(p.clone()))
+                }
+            })
+            .map(|p| {
+                if self.absolute {
+                    // canonicalize the path, or if file does not exist, join it with canonical current directory
+                    p.canonicalize().unwrap_or_else(|_| {
+                        std::env::current_dir()
+                            .unwrap_or(PathBuf::from("."))
+                            .join(p)
+                    })
+                } else {
+                    p
                 }
             })
             // clean the path, so that ./hi and ./foo/../hi both become just hi

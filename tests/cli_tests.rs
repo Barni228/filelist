@@ -17,6 +17,8 @@ use tempfile::NamedTempFile;
 // touch test_files/no_read
 // chmod 000 test_files/no_read
 
+const ROOT: &str = env!("CARGO_MANIFEST_DIR");
+
 fn run(args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) -> String {
     let output = cmd_output(args);
 
@@ -206,6 +208,21 @@ fn test_separator() {
                 "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95 \t test_files/regular\n",
             ),
             run(["test_files", i, " \t "])
+        );
+    }
+}
+
+#[test]
+fn test_absolute() {
+    for i in ["-A", "--absolute"] {
+        assert_eq!(
+            concat!(
+                "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+                "ERROR: No such file or directory (os error 2)  test_files/no_exist\n",
+                "ERROR: Permission denied (os error 13)  test_files/no_read\n",
+                "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n"
+            ).replace("test_files", &format!("{ROOT}/test_files")),
+            run(["test_files", "test_files/no_exist", i])
         );
     }
 }
