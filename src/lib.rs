@@ -11,10 +11,7 @@ use std::{
     io::{self, BufReader, IsTerminal, Read, Write},
     ops::Deref,
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{self, AtomicBool},
-    },
+    sync::Arc,
 };
 use walkdir::WalkDir;
 
@@ -87,7 +84,6 @@ pub struct FileList {
     force: bool,
     // these are private (no setter or getter)
     cache: Arc<DashMap<CleanPath, String>>,
-    freeze_progress_bar: Arc<AtomicBool>,
     progress_bar: Option<Arc<ProgressBar>>,
 }
 
@@ -131,7 +127,6 @@ impl Default for FileList {
             output: None,
             force: false,
             cache: Arc::new(DashMap::new()),
-            freeze_progress_bar: Arc::new(AtomicBool::new(false)),
             progress_bar: None,
         }
     }
@@ -462,28 +457,25 @@ impl FileList {
     fn hash_stdin(&self) -> io::Result<String> {
         let f = || {
             let stdin = io::stdin();
-            self.hash_reader(stdin.lock())
+            let hash = self.hash_reader_update_progress(stdin.lock(), false);
+            println!();
+            hash
         };
         if let Some(pb) = self.progress_bar.as_ref() {
             // do not update progress bar while reading from stdin (otherwise it will freeze)
             // when suspending, any method on pb will freeze until `f` finishes
             // but `f` will call `self.handle_progress_bytes` which will update the progress bar, and thus freeze
-            self.freeze_progress_bar
-                .store(true, atomic::Ordering::SeqCst);
-            let result = pb.suspend(f);
-
-            self.freeze_progress_bar
-                .store(false, atomic::Ordering::SeqCst);
-            result
+            pb.suspend(f)
         } else {
             f()
         }
     }
 
-    /// Hash something that implements Read
-    ///
-    /// Could be a file, stdin, or anything else
-    fn hash_reader(&self, mut reader: impl Read) -> io::Result<String> {
+    fn hash_reader_update_progress(
+        &self,
+        mut reader: impl Read,
+        update: bool,
+    ) -> io::Result<String> {
         let mut hasher = Sha256::new();
 
         let mut buffer = [0u8; 8192];
@@ -492,13 +484,19 @@ impl FileList {
             if bytes == 0 {
                 break;
             }
-
-            self.handle_progress_bytes(bytes as u64);
-
+            if update {
+                self.handle_progress_bytes(bytes as u64);
+            }
             hasher.update(&buffer[..bytes]);
         }
 
         Ok(hex::encode(hasher.finalize()))
+    }
+    /// Hash something that implements Read
+    ///
+    /// Could be a file, stdin, or anything else
+    fn hash_reader(&self, reader: impl Read) -> io::Result<String> {
+        self.hash_reader_update_progress(reader, true)
     }
 
     /// will return a list of all paths that this program should output
@@ -705,7 +703,6 @@ impl FileList {
     fn handle_progress(&self, path: &CleanPath, hash: &str) {
         if self.use_progress_bar
             && self.progress_bar_type == ProgressBarType::Files
-            && !self.freeze_progress_bar.load(atomic::Ordering::SeqCst)
             && let Some(pb) = &self.progress_bar
         {
             pb.inc(1);
@@ -724,7 +721,6 @@ impl FileList {
         if self.use_progress_bar
             && self.progress_bar_type == ProgressBarType::Bytes
             // make sure that we should be updating the progress bar
-            && !self.freeze_progress_bar.load(atomic::Ordering::SeqCst)
             && let Some(pb) = self.progress_bar.as_ref()
         {
             pb.inc(bytes);
