@@ -15,6 +15,16 @@ fn main() {
         "auto" => io::stdout().is_terminal() && io::stderr().is_terminal(),
         _ => unreachable!(),
     };
+    let progress_bar_type = match matches
+        .get_one::<String>("progress-bar-type")
+        .unwrap()
+        .as_str()
+    {
+        "auto" => filelist::ProgressBarType::Auto,
+        "files" => filelist::ProgressBarType::Files,
+        "bytes" => filelist::ProgressBarType::Bytes,
+        _ => unreachable!(),
+    };
 
     fl.set_output(matches.get_one::<PathBuf>("output"))
         .set_hash_length(*matches.get_one::<i32>("length").unwrap() as usize)
@@ -27,6 +37,7 @@ fn main() {
         .set_hash_directory(matches.get_flag("directory"))
         .set_use_progress_hash(matches.get_flag("progress-hash"))
         .set_use_progress_bar(!matches.get_flag("no-progress-bar"))
+        .set_progress_bar_type(progress_bar_type)
         .set_use_parallel(!matches.get_flag("no-parallel"))
         .set_use_color(use_color)
         .set_output(matches.get_one::<PathBuf>("output"))
@@ -63,6 +74,9 @@ fn get_clap_command() -> clap::Command {
         arg!(-p --"progress-bar" "print progress bar to stderr").overrides_with("no-progress-bar"),
         arg!(-P --"no-progress-bar" "Dont print progress bar to stderr")
             .overrides_with("progress-bar"),
+        arg!(--"progress-bar-type" <TYPE> "Type of progress bar to use")
+            .default_value("auto")
+            .value_parser(["auto", "files", "bytes"]),
         // if you want '\t' to be tab in shell, use $'\t'
         arg!(--sep <SEP> "Separator between hash and path, has no effect if --no-hash")
             .alias("separator")

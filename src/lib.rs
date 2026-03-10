@@ -11,7 +11,10 @@ use std::{
     io::{self, BufReader, IsTerminal, Read, Write},
     ops::Deref,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{self, AtomicBool},
+    },
 };
 use walkdir::WalkDir;
 
@@ -52,6 +55,14 @@ macro_rules! replace_when {
 
 const MAX_HASH_LENGTH: usize = 64; // max for SHA-256 hex
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProgressBarType {
+    #[default]
+    Auto,
+    Files,
+    Bytes,
+}
+
 // Arc allows me to edit something without mutable reference, and is also thread-safe
 // but that something NEEDS to be thread-safe (HashMap is not, thats why I use DashMap)
 /// Main configuration and execution type for file hashing.
@@ -69,12 +80,14 @@ pub struct FileList {
     follow_links: bool,
     use_progress_hash: bool,
     use_progress_bar: bool,
+    progress_bar_type: ProgressBarType,
     use_color: bool,
     use_parallel: bool,
     output: Option<CleanPath>,
     force: bool,
     // these are private (no setter or getter)
     cache: Arc<DashMap<CleanPath, String>>,
+    freeze_progress_bar: Arc<AtomicBool>,
     progress_bar: Option<Arc<ProgressBar>>,
 }
 
@@ -112,11 +125,13 @@ impl Default for FileList {
             follow_links: false,
             use_progress_hash: false,
             use_progress_bar: false,
+            progress_bar_type: ProgressBarType::default(),
             use_color: false,
             use_parallel: true,
             output: None,
             force: false,
             cache: Arc::new(DashMap::new()),
+            freeze_progress_bar: Arc::new(AtomicBool::new(false)),
             progress_bar: None,
         }
     }
@@ -164,6 +179,9 @@ impl FileList {
     }
     pub fn use_progress_bar(&self) -> bool {
         self.use_progress_bar
+    }
+    pub fn progress_bar_type(&self) -> ProgressBarType {
+        self.progress_bar_type
     }
     pub fn use_parallel(&self) -> bool {
         self.use_parallel
@@ -219,6 +237,10 @@ impl FileList {
         self.use_progress_bar = value;
         self
     }
+    pub fn set_progress_bar_type(&mut self, value: ProgressBarType) -> &mut Self {
+        self.progress_bar_type = value;
+        self
+    }
     pub fn set_use_parallel(&mut self, value: bool) -> &mut Self {
         self.use_parallel = value;
         self
@@ -250,20 +272,7 @@ impl FileList {
         let real_paths = self.get_output_paths(&paths);
         let dependencies = self.get_hash_dependencies(&real_paths);
 
-        // create a progress bar
-        if self.use_progress_bar {
-            let len = dependencies.iter().fold(0, |acc, s| acc + s.len());
-            let pb = ProgressBar::new(len as u64);
-            // here are all style options: https://docs.rs/indicatif/0.18.4/indicatif/index.html#templates
-            pb.set_style(
-                ProgressStyle::with_template("[{bar:60}] {pos}/{len} {msg} {eta}")
-                    .unwrap()
-                    .progress_chars("=> "),
-            );
-            // draw the progress bar, so something like 0/69 is shown
-            pb.tick();
-            self.progress_bar = Some(Arc::new(pb));
-        }
+        self.create_progress_bar(&dependencies);
 
         // cache every single path, in such order that we never hash the same file twice
         // don't bother caching stuff if `no_hash` is true
@@ -456,7 +465,16 @@ impl FileList {
             self.hash_reader(stdin.lock())
         };
         if let Some(pb) = self.progress_bar.as_ref() {
-            pb.suspend(f)
+            // do not update progress bar while reading from stdin (otherwise it will freeze)
+            // when suspending, any method on pb will freeze until `f` finishes
+            // but `f` will call `self.handle_progress_bytes` which will update the progress bar, and thus freeze
+            self.freeze_progress_bar
+                .store(true, atomic::Ordering::SeqCst);
+            let result = pb.suspend(f);
+
+            self.freeze_progress_bar
+                .store(false, atomic::Ordering::SeqCst);
+            result
         } else {
             f()
         }
@@ -470,11 +488,14 @@ impl FileList {
 
         let mut buffer = [0u8; 8192];
         loop {
-            let n = reader.read(&mut buffer)?;
-            if n == 0 {
+            let bytes = reader.read(&mut buffer)?;
+            if bytes == 0 {
                 break;
             }
-            hasher.update(&buffer[..n]);
+
+            self.handle_progress_bytes(bytes as u64);
+
+            hasher.update(&buffer[..bytes]);
         }
 
         Ok(hex::encode(hasher.finalize()))
@@ -613,10 +634,80 @@ impl FileList {
         path.is_dir() && (self.follow_links || !path.is_symlink())
     }
 
+    fn file_size(&self, path: &Path) -> io::Result<u64> {
+        if path.as_os_str() == "-" {
+            return Ok(0);
+        }
+        let metadata = match self.follow_links {
+            true => fs::metadata(path)?,
+            false => fs::symlink_metadata(path)?,
+        };
+        if metadata.is_file() || metadata.is_symlink() {
+            Ok(metadata.len())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{} is not a file", path.display()),
+            ))
+        }
+    }
+
+    /// Create a progress bar if `use_progress_bar` is true
+    fn create_progress_bar(&mut self, dependencies: &[HashSet<CleanPath>]) {
+        if !self.use_progress_bar {
+            return;
+        }
+        // how many entries to hash
+        let len: usize = dependencies.iter().fold(0, |acc, s| acc + s.len());
+
+        if self.progress_bar_type == ProgressBarType::Auto {
+            self.progress_bar_type = match len {
+                ..=100 => ProgressBarType::Bytes,
+                _ => ProgressBarType::Files,
+            };
+        };
+
+        let pb = match self.progress_bar_type {
+            ProgressBarType::Files => {
+                let pb = ProgressBar::new(len as u64);
+                // here are all style options: https://docs.rs/indicatif/0.18.4/indicatif/index.html#templates
+                pb.set_style(
+                    ProgressStyle::with_template("[{bar:60}] {pos}/{len} {eta}")
+                        .unwrap()
+                        .progress_chars("=> "),
+                );
+                pb
+            }
+            ProgressBarType::Bytes => {
+                // find the total number of bytes for all the files
+                let total: u64 = dependencies[0]
+                    .iter()
+                    .fold(0, |acc, file| acc + self.file_size(file).unwrap_or(0));
+
+                let pb = ProgressBar::new(total);
+                pb.set_style(
+                    ProgressStyle::with_template("[{bar:60}] ({bytes}) / ({total_bytes}) {eta}")
+                        .unwrap()
+                        .progress_chars("=> "),
+                );
+                pb
+            }
+            _ => unreachable!(),
+        };
+
+        // draw the progress bar, so something like 0/69 is shown
+        pb.tick();
+        self.progress_bar = Some(Arc::new(pb));
+    }
+
     /// Handle progress bar / progress logs
     /// `path` has to be clean, because it will be printed
     fn handle_progress(&self, path: &CleanPath, hash: &str) {
-        if let Some(pb) = &self.progress_bar {
+        if self.use_progress_bar
+            && self.progress_bar_type == ProgressBarType::Files
+            && !self.freeze_progress_bar.load(atomic::Ordering::SeqCst)
+            && let Some(pb) = &self.progress_bar
+        {
             pb.inc(1);
         }
 
@@ -626,6 +717,17 @@ impl FileList {
             } else {
                 self.eprint_respect_progress(self.fmt_line(path, hash));
             }
+        }
+    }
+
+    fn handle_progress_bytes(&self, bytes: u64) {
+        if self.use_progress_bar
+            && self.progress_bar_type == ProgressBarType::Bytes
+            // make sure that we should be updating the progress bar
+            && !self.freeze_progress_bar.load(atomic::Ordering::SeqCst)
+            && let Some(pb) = self.progress_bar.as_ref()
+        {
+            pb.inc(bytes);
         }
     }
 
