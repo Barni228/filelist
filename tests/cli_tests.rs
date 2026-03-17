@@ -228,6 +228,51 @@ fn test_absolute() {
 }
 
 #[test]
+fn test_relative_to() {
+    let same_output = ["-0", "-a", "-l12", "--sep=___", "-d"];
+
+    // running relative-to test_files should be exactly the same as running filelist in test_files
+    for i in same_output.iter().powerset() {
+        // let expected = run(["test_files"].iter().chain(i.clone()));
+        let expected = String::from_utf8(
+            Command::cargo_bin("filelist")
+                .unwrap()
+                .current_dir("test_files")
+                .args(i.clone())
+                .arg(".")
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+
+        Command::cargo_bin("filelist")
+            .unwrap()
+            .args(
+                ["test_files", "--relative-to", "test_files"]
+                    .iter()
+                    .chain(i),
+            )
+            .assert()
+            .success()
+            .stdout(expected);
+    }
+}
+
+#[test]
+fn test_relative_to_parent() {
+    let expected = concat!(
+        "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  regular\n",
+        "ERROR: Permission denied (os error 13)  ../no_read\n",
+        "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  ../regular\n",
+    );
+
+    assert_eq!(
+        expected,
+        run(["test_files", "--relative-to", "test_files/dir"])
+    );
+}
+
+#[test]
 fn test_multiple_files() {
     assert_eq!(
         concat!(
@@ -337,7 +382,10 @@ fn test_parent_directory() {
     let same_replaced = ["-0", "-a", "-l12", "--sep=___", "-d"];
     for i in same_replaced.iter().powerset() {
         // output should be exactly the same as usual, except that `test_files` is now `..`
-        let expected = run(["test_files"].iter().chain(i.clone())).replace("test_files", "..");
+        let expected = run(["test_files"].iter().chain(i.clone()))
+            .replace("test_files", "..")
+            .replace("../dir/regular", "regular")
+            .replace("../dir", ".");
         Command::cargo_bin("filelist")
             .unwrap()
             .current_dir("test_files/dir")
@@ -401,7 +449,8 @@ fn test_symlink_follow() {
 
 #[test]
 fn test_stdin() {
-    let expected_regular = "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  -\n";
+    let expected_regular =
+        "\n7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  -\n";
 
     Command::cargo_bin("filelist")
         .unwrap()
@@ -414,7 +463,7 @@ fn test_stdin() {
         .success()
         .stdout(expected_regular);
 
-    let expected_hi = "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4  -\n";
+    let expected_hi = "\n8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4  -\n";
 
     Command::cargo_bin("filelist")
         .unwrap()
@@ -429,7 +478,8 @@ fn test_stdin() {
 
 #[test]
 fn test_stdin_piped() {
-    let expected_regular = "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  -\n";
+    let expected_regular =
+        "\n7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  -\n";
 
     Command::cargo_bin("filelist")
         .unwrap()

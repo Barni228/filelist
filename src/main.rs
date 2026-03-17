@@ -25,8 +25,11 @@ fn main() {
         "bytes" => filelist::ProgressBarType::Bytes,
         _ => unreachable!(),
     };
+    if let Some(relative_to) = matches.get_one::<PathBuf>("relative-to") {
+        fl.set_relative_to(relative_to);
+    }
 
-    fl.set_output(matches.get_one::<PathBuf>("output"))
+    fl.set_output(matches.get_one::<PathBuf>("output").cloned())
         .set_hash_length(*matches.get_one::<i32>("length").unwrap() as usize)
         .set_no_hash(matches.get_flag("no-hash"))
         .set_absolute(matches.get_flag("absolute"))
@@ -40,7 +43,6 @@ fn main() {
         .set_progress_bar_type(progress_bar_type)
         .set_use_parallel(!matches.get_flag("no-parallel"))
         .set_use_color(use_color)
-        .set_output(matches.get_one::<PathBuf>("output"))
         .set_force(matches.get_flag("force"));
 
     let paths: Vec<PathBuf> = matches
@@ -70,6 +72,9 @@ fn get_clap_command() -> clap::Command {
         // basically -r AND -R will never both be true, either both false or one false one true
         arg!(-r --recursive "Hash directories recursively, default").overrides_with("no-recursive"),
         arg!(-R --"no-recursive" "Don't hash directories recursively").overrides_with("recursive"),
+        arg!(--"relative-to" <PATH> "Make all paths relative to PATH")
+            .value_parser(value_parser!(PathBuf))
+            .conflicts_with("absolute"),
         arg!(-e --"progress-hash" "print what has been hashed so far to stderr"),
         arg!(-p --"progress-bar" "print progress bar to stderr").overrides_with("no-progress-bar"),
         arg!(-P --"no-progress-bar" "Dont print progress bar to stderr")

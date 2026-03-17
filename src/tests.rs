@@ -6,9 +6,9 @@ fn test_get_output_paths_files() {
     let real_paths = fl.get_output_paths(&["test_files".into()]);
     assert_eq!(
         vec![
-            CleanPath::from("test_files/dir/regular"),
-            CleanPath::from("test_files/no_read"),
-            CleanPath::from("test_files/regular"),
+            PathBuf::from("test_files/dir/regular"),
+            PathBuf::from("test_files/no_read"),
+            PathBuf::from("test_files/regular"),
         ],
         real_paths
     );
@@ -22,11 +22,11 @@ fn test_get_output_paths_dir() {
     let real_paths = fl.get_output_paths(&["test_files".into()]);
     assert_eq!(
         vec![
-            CleanPath::from("test_files"),
-            CleanPath::from("test_files/dir"),
-            CleanPath::from("test_files/dir/regular"),
-            CleanPath::from("test_files/no_read"),
-            CleanPath::from("test_files/regular"),
+            PathBuf::from("test_files"),
+            PathBuf::from("test_files/dir"),
+            PathBuf::from("test_files/dir/regular"),
+            PathBuf::from("test_files/no_read"),
+            PathBuf::from("test_files/regular"),
         ],
         real_paths
     );
@@ -41,12 +41,12 @@ fn test_get_output_paths_hidden() {
     let real_paths = fl.get_output_paths(&["test_files".into()]);
     assert_eq!(
         vec![
-            CleanPath::from("test_files"),
-            CleanPath::from("test_files/.hidden"),
-            CleanPath::from("test_files/dir"),
-            CleanPath::from("test_files/dir/regular"),
-            CleanPath::from("test_files/no_read"),
-            CleanPath::from("test_files/regular"),
+            PathBuf::from("test_files"),
+            PathBuf::from("test_files/.hidden"),
+            PathBuf::from("test_files/dir"),
+            PathBuf::from("test_files/dir/regular"),
+            PathBuf::from("test_files/no_read"),
+            PathBuf::from("test_files/regular"),
         ],
         real_paths
     );
@@ -59,9 +59,9 @@ fn test_get_output_paths_link() {
     let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
     assert_eq!(
         vec![
-            CleanPath::from("symlink_test_files/dir/inside"),
-            CleanPath::from("symlink_test_files/dir-link"),
-            CleanPath::from("symlink_test_files/link"),
+            PathBuf::from("symlink_test_files/dir/inside"),
+            PathBuf::from("symlink_test_files/dir-link"),
+            PathBuf::from("symlink_test_files/link"),
         ],
         real_paths
     );
@@ -70,11 +70,11 @@ fn test_get_output_paths_link() {
     let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
     assert_eq!(
         vec![
-            CleanPath::from("symlink_test_files"),
-            CleanPath::from("symlink_test_files/dir"),
-            CleanPath::from("symlink_test_files/dir/inside"),
-            CleanPath::from("symlink_test_files/dir-link"),
-            CleanPath::from("symlink_test_files/link"),
+            PathBuf::from("symlink_test_files"),
+            PathBuf::from("symlink_test_files/dir"),
+            PathBuf::from("symlink_test_files/dir/inside"),
+            PathBuf::from("symlink_test_files/dir-link"),
+            PathBuf::from("symlink_test_files/link"),
         ],
         real_paths
     );
@@ -88,9 +88,9 @@ fn test_get_output_paths_link_follow() {
     let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
     assert_eq!(
         vec![
-            CleanPath::from("symlink_test_files/dir/inside"),
-            CleanPath::from("symlink_test_files/dir-link/inside"),
-            CleanPath::from("symlink_test_files/link"),
+            PathBuf::from("symlink_test_files/dir/inside"),
+            PathBuf::from("symlink_test_files/dir-link/inside"),
+            PathBuf::from("symlink_test_files/link"),
         ],
         real_paths
     );
@@ -99,12 +99,12 @@ fn test_get_output_paths_link_follow() {
     let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
     assert_eq!(
         vec![
-            CleanPath::from("symlink_test_files"),
-            CleanPath::from("symlink_test_files/dir"),
-            CleanPath::from("symlink_test_files/dir/inside"),
-            CleanPath::from("symlink_test_files/dir-link"),
-            CleanPath::from("symlink_test_files/dir-link/inside"),
-            CleanPath::from("symlink_test_files/link"),
+            PathBuf::from("symlink_test_files"),
+            PathBuf::from("symlink_test_files/dir"),
+            PathBuf::from("symlink_test_files/dir/inside"),
+            PathBuf::from("symlink_test_files/dir-link"),
+            PathBuf::from("symlink_test_files/dir-link/inside"),
+            PathBuf::from("symlink_test_files/link"),
         ],
         real_paths
     );
@@ -114,7 +114,7 @@ fn test_get_output_paths_link_follow() {
 fn test_get_output_paths_does_not_exist() {
     let fl = FileList::new();
     let real_paths = fl.get_output_paths(&["test_files/no_exist".into()]);
-    assert_eq!(vec![CleanPath::from("test_files/no_exist"),], real_paths);
+    assert_eq!(vec![PathBuf::from("test_files/no_exist"),], real_paths);
 }
 
 #[test]
@@ -124,9 +124,9 @@ fn test_get_hash_dependencies_files() {
     let dependencies = fl.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![HashSet::from([
-            CleanPath::from("test_files/dir/regular"),
-            CleanPath::from("test_files/no_read"),
-            CleanPath::from("test_files/regular"),
+            PathBuf::from("test_files/dir/regular"),
+            PathBuf::from("test_files/no_read"),
+            PathBuf::from("test_files/regular"),
         ])],
         dependencies
     );
@@ -141,12 +141,12 @@ fn test_get_hash_dependencies_dir() {
     assert_eq!(
         vec![
             HashSet::from([
-                CleanPath::from("test_files/dir/regular"),
-                CleanPath::from("test_files/no_read"),
-                CleanPath::from("test_files/regular"),
+                PathBuf::from("test_files/dir/regular"),
+                PathBuf::from("test_files/no_read"),
+                PathBuf::from("test_files/regular"),
             ]),
-            HashSet::from([CleanPath::from("test_files/dir")]),
-            HashSet::from([CleanPath::from("test_files")]),
+            HashSet::from([PathBuf::from("test_files/dir")]),
+            HashSet::from([PathBuf::from("test_files")]),
         ],
         dependencies
     );
@@ -162,13 +162,13 @@ fn test_get_hash_dependencies_hidden() {
     assert_eq!(
         vec![
             HashSet::from([
-                CleanPath::from("test_files/.hidden"),
-                CleanPath::from("test_files/dir/regular"),
-                CleanPath::from("test_files/no_read"),
-                CleanPath::from("test_files/regular"),
+                PathBuf::from("test_files/.hidden"),
+                PathBuf::from("test_files/dir/regular"),
+                PathBuf::from("test_files/no_read"),
+                PathBuf::from("test_files/regular"),
             ]),
-            HashSet::from([CleanPath::from("test_files/dir")]),
-            HashSet::from([CleanPath::from("test_files")]),
+            HashSet::from([PathBuf::from("test_files/dir")]),
+            HashSet::from([PathBuf::from("test_files")]),
         ],
         dependencies
     );
@@ -181,9 +181,9 @@ fn test_get_hash_dependencies_link() {
     let dependencies = fl.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![HashSet::from([
-            CleanPath::from("symlink_test_files/dir-link"),
-            CleanPath::from("symlink_test_files/dir/inside"),
-            CleanPath::from("symlink_test_files/link"),
+            PathBuf::from("symlink_test_files/dir-link"),
+            PathBuf::from("symlink_test_files/dir/inside"),
+            PathBuf::from("symlink_test_files/link"),
         ])],
         dependencies
     );
@@ -194,12 +194,12 @@ fn test_get_hash_dependencies_link() {
     assert_eq!(
         vec![
             HashSet::from([
-                CleanPath::from("symlink_test_files/dir-link"),
-                CleanPath::from("symlink_test_files/dir/inside"),
-                CleanPath::from("symlink_test_files/link"),
+                PathBuf::from("symlink_test_files/dir-link"),
+                PathBuf::from("symlink_test_files/dir/inside"),
+                PathBuf::from("symlink_test_files/link"),
             ]),
-            HashSet::from([CleanPath::from("symlink_test_files/dir")]),
-            HashSet::from([CleanPath::from("symlink_test_files")]),
+            HashSet::from([PathBuf::from("symlink_test_files/dir")]),
+            HashSet::from([PathBuf::from("symlink_test_files")]),
         ],
         dependencies
     );
@@ -213,9 +213,9 @@ fn test_get_hash_dependencies_link_follow() {
     let dependencies = fl.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![HashSet::from([
-            CleanPath::from("symlink_test_files/dir-link/inside"),
-            CleanPath::from("symlink_test_files/dir/inside"),
-            CleanPath::from("symlink_test_files/link"),
+            PathBuf::from("symlink_test_files/dir-link/inside"),
+            PathBuf::from("symlink_test_files/dir/inside"),
+            PathBuf::from("symlink_test_files/link"),
         ])],
         dependencies
     );
@@ -226,15 +226,15 @@ fn test_get_hash_dependencies_link_follow() {
     assert_eq!(
         vec![
             HashSet::from([
-                CleanPath::from("symlink_test_files/dir-link/inside"),
-                CleanPath::from("symlink_test_files/dir/inside"),
-                CleanPath::from("symlink_test_files/link"),
+                PathBuf::from("symlink_test_files/dir-link/inside"),
+                PathBuf::from("symlink_test_files/dir/inside"),
+                PathBuf::from("symlink_test_files/link"),
             ]),
             HashSet::from([
-                CleanPath::from("symlink_test_files/dir"),
-                CleanPath::from("symlink_test_files/dir-link")
+                PathBuf::from("symlink_test_files/dir"),
+                PathBuf::from("symlink_test_files/dir-link")
             ]),
-            HashSet::from([CleanPath::from("symlink_test_files")]),
+            HashSet::from([PathBuf::from("symlink_test_files")]),
         ],
         dependencies
     );
@@ -246,7 +246,7 @@ fn test_get_hash_dependencies_does_not_exist() {
     let real_paths = fl.get_output_paths(&["test_files/no_exist".into()]);
     let dependencies = fl.get_hash_dependencies(&real_paths);
     assert_eq!(
-        vec![HashSet::from([CleanPath::from("test_files/no_exist"),])],
+        vec![HashSet::from([PathBuf::from("test_files/no_exist"),])],
         dependencies
     );
 }

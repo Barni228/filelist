@@ -1,6 +1,7 @@
-- [ ] Make progress bar check file sizes, instead of advancing only when it finishes a single file
-- [ ] Canonicalize paths that get cached, so I never hash same file twice
 - [ ] When hashing followed symlinks, instead of hashing their target again get it from cache
+- [ ] Add option to print progress bar info in stderr, that other programs could parse
+- [ ] Add an option to have paths like "./regular" instead of always cleaning the "." away
+- [ ] Maybe make a nicer detection of stdin (right now i check if path == "-")
 
 ## Easy
 
@@ -11,6 +12,8 @@
 
 ## Done
 
+- [x] Canonicalize paths that get cached, so I never hash same file twice
+- [x] Make progress bar check file sizes, instead of advancing only when it finishes a single file
 - [x] Decide EXACTLY what -R flag does (`filelist -R .`, what should this do? Nothing?)
 - [x] Check if it works with `..` paths (parent paths)
 - [x] `get_hash_dependencies` will ignore non existing files,
