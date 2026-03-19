@@ -499,7 +499,7 @@ impl FileList {
             if !io::stdin().is_terminal() {
                 default[0] = PathBuf::from("-")
             } else {
-                default[0] = PathBuf::from(".")
+                default[0] = get_current_dir();
             }
             &default
         } else {

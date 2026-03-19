@@ -2,6 +2,7 @@
 - [ ] Add option to print progress bar info in stderr, that other programs could parse
 - [ ] Add an option to have paths like "./regular" instead of always cleaning the "." away
 - [ ] Maybe make a nicer detection of stdin (right now i check if path == "-")
+- [ ] Add option to respect gitignore / special ignore file
 
 ## Easy
 
