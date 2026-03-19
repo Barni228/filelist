@@ -91,7 +91,7 @@ impl Default for FileList {
     fn default() -> Self {
         Self {
             no_hash: false,
-            hash_length: 32,
+            hash_length: 64,
             sep: String::from("  "),
             all: false,
             hash_directory: false,
