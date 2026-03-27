@@ -13,6 +13,7 @@
 
 ## Done
 
+- [x] `filelist | less` if you press `q` before it prints everything, it throws an error
 - [x] Canonicalize paths that get cached, so I never hash same file twice
 - [x] Make progress bar check file sizes, instead of advancing only when it finishes a single file
 - [x] Decide EXACTLY what -R flag does (`filelist -R .`, what should this do? Nothing?)

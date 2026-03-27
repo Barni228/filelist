@@ -349,6 +349,7 @@ impl FileList {
     /// Hash a file or directory, and cache the result
     /// Return "ERROR: <error>" if there is an error
     /// THIS IS THE ONLY CACHED FUNCTION, ALL OTHER FUNCTIONS SHOULD CALL THIS FUNC TO GET THE HASH
+    /// does not respect the configuration
     fn hash_no_error(&self, path: PathBuf) -> String {
         if let Some(hash) = self.cache.get(&path) {
             return hash.clone();
@@ -712,6 +713,7 @@ impl FileList {
         path.canonicalize()
             .unwrap_or_else(|_| get_current_dir().join(path))
     }
+
     // format path and hash to be shown according to the flags
     fn fmt_line(&self, path: &Path, hash: &str) -> String {
         let path_formatted = self.path_to_string(path);
@@ -746,13 +748,12 @@ impl FileList {
     }
 
     fn print_respect_progress(&self, s: impl std::fmt::Display) {
-        self.print_to_respect_progress(&mut io::stdout(), s)
-            .unwrap();
+        // ignore any errors that might happen while printing, like broken pipe (pressing `q` in `less`)
+        let _ = self.print_to_respect_progress(&mut io::stdout(), s);
     }
 
     fn eprint_respect_progress(&self, s: impl std::fmt::Display) {
-        self.print_to_respect_progress(&mut io::stderr(), s)
-            .unwrap();
+        let _ = self.print_to_respect_progress(&mut io::stderr(), s);
     }
 
     /// Convert a path into its display form.
