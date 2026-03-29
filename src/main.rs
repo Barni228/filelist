@@ -25,25 +25,27 @@ fn main() {
         "bytes" => filelist::ProgressBarType::Bytes,
         _ => unreachable!(),
     };
+
     if let Some(relative_to) = matches.get_one::<PathBuf>("relative-to") {
         fl.set_relative_to(relative_to);
     }
 
-    fl.set_output(matches.get_one::<PathBuf>("output").cloned())
+    fl.set_output(matches.get_one::<PathBuf>("output").map(|p| p.as_path()))
         .set_hash_length(*matches.get_one::<i32>("length").unwrap() as usize)
-        .set_no_hash(matches.get_flag("no-hash"))
         .set_absolute(matches.get_flag("absolute"))
-        .set_all(matches.get_flag("all"))
-        .set_recursive(!matches.get_flag("no-recursive"))
-        .set_follow_links(matches.get_flag("link"))
-        .set_sep(matches.get_one::<String>("sep").unwrap())
-        .set_hash_directory(matches.get_flag("directory"))
+        .set_sep(matches.get_one::<String>("sep").unwrap().clone())
         .set_use_progress_hash(matches.get_flag("progress-hash"))
         .set_use_progress_bar(!matches.get_flag("no-progress-bar"))
         .set_progress_bar_type(progress_bar_type)
-        .set_use_parallel(!matches.get_flag("no-parallel"))
         .set_use_color(use_color)
-        .set_force(matches.get_flag("force"));
+        .set_force(matches.get_flag("force"))
+        .hasher_mut()
+        .set_no_hash(matches.get_flag("no-hash"))
+        .set_all(matches.get_flag("all"))
+        .set_recursive(!matches.get_flag("no-recursive"))
+        .set_follow_links(matches.get_flag("link"))
+        .set_hash_directory(matches.get_flag("directory"))
+        .set_use_parallel(!matches.get_flag("no-parallel"));
 
     let paths: Vec<PathBuf> = matches
         .get_many::<PathBuf>("PATHS")

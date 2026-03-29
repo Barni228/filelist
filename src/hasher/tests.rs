@@ -2,8 +2,9 @@ use super::*;
 
 #[test]
 fn test_get_output_paths_files() {
-    let fl = FileList::new();
-    let real_paths = fl.get_output_paths(&["test_files".into()]);
+    let mut hasher = Hasher::new();
+    hasher.set_paths(vec!["test_files".into()]);
+    let real_paths = hasher.get_output_paths();
     assert_eq!(
         vec![
             PathBuf::from("test_files/dir/regular"),
@@ -16,10 +17,9 @@ fn test_get_output_paths_files() {
 
 #[test]
 fn test_get_output_paths_dir() {
-    let mut fl = FileList::new();
-    fl.set_hash_directory(true);
-
-    let real_paths = fl.get_output_paths(&["test_files".into()]);
+    let mut hasher = Hasher::new().with_hash_directory(true);
+    hasher.set_paths(vec!["test_files".into()]);
+    let real_paths = hasher.get_output_paths();
     assert_eq!(
         vec![
             PathBuf::from("test_files"),
@@ -34,11 +34,10 @@ fn test_get_output_paths_dir() {
 
 #[test]
 fn test_get_output_paths_hidden() {
-    let mut fl = FileList::new();
-    fl.set_hash_directory(true);
-    fl.set_all(true);
+    let mut hasher = Hasher::new().with_hash_directory(true).with_all(true);
 
-    let real_paths = fl.get_output_paths(&["test_files".into()]);
+    hasher.set_paths(vec!["test_files".into()]);
+    let real_paths = hasher.get_output_paths();
     assert_eq!(
         vec![
             PathBuf::from("test_files"),
@@ -54,9 +53,10 @@ fn test_get_output_paths_hidden() {
 
 #[test]
 fn test_get_output_paths_link() {
-    let mut fl = FileList::new();
+    let mut hasher = Hasher::new();
 
-    let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
+    hasher.set_paths(vec!["symlink_test_files".into()]);
+    let real_paths = hasher.get_output_paths();
     assert_eq!(
         vec![
             PathBuf::from("symlink_test_files/dir/inside"),
@@ -66,8 +66,8 @@ fn test_get_output_paths_link() {
         real_paths
     );
 
-    fl.set_hash_directory(true);
-    let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
+    hasher.set_hash_directory(true);
+    let real_paths = hasher.get_output_paths();
     assert_eq!(
         vec![
             PathBuf::from("symlink_test_files"),
@@ -82,10 +82,10 @@ fn test_get_output_paths_link() {
 
 #[test]
 fn test_get_output_paths_link_follow() {
-    let mut fl = FileList::new();
-    fl.set_follow_links(true);
+    let mut hasher = Hasher::new().with_follow_links(true);
 
-    let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
+    hasher.set_paths(vec!["symlink_test_files".into()]);
+    let real_paths = hasher.get_output_paths();
     assert_eq!(
         vec![
             PathBuf::from("symlink_test_files/dir/inside"),
@@ -95,8 +95,8 @@ fn test_get_output_paths_link_follow() {
         real_paths
     );
 
-    fl.set_hash_directory(true);
-    let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
+    hasher.set_hash_directory(true);
+    let real_paths = hasher.get_output_paths();
     assert_eq!(
         vec![
             PathBuf::from("symlink_test_files"),
@@ -112,16 +112,16 @@ fn test_get_output_paths_link_follow() {
 
 #[test]
 fn test_get_output_paths_does_not_exist() {
-    let fl = FileList::new();
-    let real_paths = fl.get_output_paths(&["test_files/no_exist".into()]);
+    let hasher = Hasher::new().with_paths(vec!["test_files/no_exist".into()]);
+    let real_paths = hasher.get_output_paths();
     assert_eq!(vec![PathBuf::from("test_files/no_exist"),], real_paths);
 }
 
 #[test]
 fn test_get_hash_dependencies_files() {
-    let fl = FileList::new();
-    let real_paths = fl.get_output_paths(&["test_files".into()]);
-    let dependencies = fl.get_hash_dependencies(&real_paths);
+    let hasher = Hasher::new().with_paths(vec!["test_files".into()]);
+    let real_paths = hasher.get_output_paths();
+    let dependencies = hasher.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![HashSet::from([
             PathBuf::from("test_files/dir/regular"),
@@ -134,10 +134,11 @@ fn test_get_hash_dependencies_files() {
 
 #[test]
 fn test_get_hash_dependencies_dir() {
-    let mut fl = FileList::new();
-    fl.set_hash_directory(true);
-    let real_paths = fl.get_output_paths(&["test_files".into()]);
-    let dependencies = fl.get_hash_dependencies(&real_paths);
+    let hasher = Hasher::new()
+        .with_paths(vec!["test_files".into()])
+        .with_hash_directory(true);
+    let real_paths = hasher.get_output_paths();
+    let dependencies = hasher.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![
             HashSet::from([
@@ -154,11 +155,12 @@ fn test_get_hash_dependencies_dir() {
 
 #[test]
 fn test_get_hash_dependencies_hidden() {
-    let mut fl = FileList::new();
-    fl.set_hash_directory(true);
-    fl.set_all(true);
-    let real_paths = fl.get_output_paths(&["test_files".into()]);
-    let dependencies = fl.get_hash_dependencies(&real_paths);
+    let hasher = Hasher::new()
+        .with_hash_directory(true)
+        .with_all(true)
+        .with_paths(vec!["test_files".into()]);
+    let real_paths = hasher.get_output_paths();
+    let dependencies = hasher.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![
             HashSet::from([
@@ -176,9 +178,10 @@ fn test_get_hash_dependencies_hidden() {
 
 #[test]
 fn test_get_hash_dependencies_link() {
-    let mut fl = FileList::new();
-    let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
-    let dependencies = fl.get_hash_dependencies(&real_paths);
+    let mut hasher = Hasher::new();
+    hasher.set_paths(vec!["symlink_test_files".into()]);
+    let real_paths = hasher.get_output_paths();
+    let dependencies = hasher.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![HashSet::from([
             PathBuf::from("symlink_test_files/dir-link"),
@@ -188,9 +191,9 @@ fn test_get_hash_dependencies_link() {
         dependencies
     );
 
-    fl.set_hash_directory(true);
-    let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
-    let dependencies = fl.get_hash_dependencies(&real_paths);
+    hasher.set_hash_directory(true);
+    let real_paths = hasher.get_output_paths();
+    let dependencies = hasher.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![
             HashSet::from([
@@ -207,10 +210,11 @@ fn test_get_hash_dependencies_link() {
 
 #[test]
 fn test_get_hash_dependencies_link_follow() {
-    let mut fl = FileList::new();
-    fl.set_follow_links(true);
-    let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
-    let dependencies = fl.get_hash_dependencies(&real_paths);
+    let mut hasher = Hasher::new();
+    hasher.set_paths(vec!["symlink_test_files".into()]);
+    hasher.set_follow_links(true);
+    let real_paths = hasher.get_output_paths();
+    let dependencies = hasher.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![HashSet::from([
             PathBuf::from("symlink_test_files/dir-link/inside"),
@@ -220,9 +224,9 @@ fn test_get_hash_dependencies_link_follow() {
         dependencies
     );
 
-    fl.set_hash_directory(true);
-    let real_paths = fl.get_output_paths(&["symlink_test_files".into()]);
-    let dependencies = fl.get_hash_dependencies(&real_paths);
+    hasher.set_hash_directory(true);
+    let real_paths = hasher.get_output_paths();
+    let dependencies = hasher.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![
             HashSet::from([
@@ -242,9 +246,9 @@ fn test_get_hash_dependencies_link_follow() {
 
 #[test]
 fn test_get_hash_dependencies_does_not_exist() {
-    let fl = FileList::new();
-    let real_paths = fl.get_output_paths(&["test_files/no_exist".into()]);
-    let dependencies = fl.get_hash_dependencies(&real_paths);
+    let hasher = Hasher::new().with_paths(vec!["test_files/no_exist".into()]);
+    let real_paths = hasher.get_output_paths();
+    let dependencies = hasher.get_hash_dependencies(&real_paths);
     assert_eq!(
         vec![HashSet::from([PathBuf::from("test_files/no_exist"),])],
         dependencies
