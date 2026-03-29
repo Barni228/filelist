@@ -1,8 +1,9 @@
 - [ ] When hashing followed symlinks, instead of hashing their target again get it from cache
 - [ ] Add option to print progress bar info in stderr, that other programs could parse
 - [ ] Add an option to have paths like "./regular" instead of always cleaning the "." away
-- [ ] Maybe make a nicer detection of stdin (right now i check if path == "-")
 - [ ] Add option to respect gitignore / special ignore file
+- [ ] `FileList::run` feels like something that main.rs should handle,
+      and `FileList` should just be library that handle library stuff, like having nice API, not writing files
 
 ## Easy
 
@@ -13,6 +14,7 @@
 
 ## Done
 
+- [x] Maybe make a nicer detection of stdin (right now i check if path == "-")
 - [x] `filelist | less` if you press `q` before it prints everything, it throws an error
 - [x] Canonicalize paths that get cached, so I never hash same file twice
 - [x] Make progress bar check file sizes, instead of advancing only when it finishes a single file

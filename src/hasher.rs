@@ -19,24 +19,31 @@ pub struct Hasher {
     /// If true, don't hash any files
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     no_hash: bool,
+
     /// If true, hash hidden files
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     all: bool,
+
     /// If true, hash directories
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     hash_directory: bool,
+
     /// If true, when passing a directory, this will return hash of directory and hash of everything inside
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     recursive: bool,
+
     /// If true, follow symlinks, if false, this will treat symlinks as files
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     follow_links: bool,
+
     /// If true, hash files in parallel
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     use_parallel: bool,
+
     /// The paths that will be hashed
     #[getset(get = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     paths: Vec<PathBuf>,
+
     /// An optional progress object (can be used to show progress bar)
     progress: Option<Arc<dyn HasherProgress>>,
     cache: Arc<DashMap<PathBuf, String>>,
@@ -81,9 +88,11 @@ impl std::fmt::Debug for Hasher {
 }
 
 impl Hasher {
+    /// An optional progress object (can be used to show progress bar)
     pub fn set_progress(&mut self, progress: Arc<dyn HasherProgress>) {
         self.progress = Some(progress);
     }
+    /// Remove the progress object
     pub fn clear_progress(&mut self) {
         self.progress = None;
     }
@@ -130,7 +139,7 @@ impl Hasher {
                 // .map(|path| (path, self.hash_no_error(path)))
                 // get everything from cache
                 .map(|path| {
-                    let hash = self.cache.get(&path).unwrap().value().clone();
+                    let hash = self.cache.get(&path).unwrap().clone();
                     (path, hash)
                 })
                 .collect()
@@ -148,9 +157,9 @@ impl Hasher {
             return Ok(hash.clone());
         }
 
-        // if we dont follow symlinks and the path is a symlink, hash the target path
         let hash_result = if self.no_hash {
             Ok(String::new())
+        // if we dont follow symlinks and the path is a symlink, hash the target path
         } else if path.is_symlink() && !self.follow_links {
             self.hash_link(path)
         } else if path.is_dir() {
@@ -174,6 +183,7 @@ impl Hasher {
 
     pub fn hash_no_error(&self, path: &Path) -> String {
         // if the path is in the cache, even if it is an error, return it
+        // self.hash would not return it from cache, so I am returning it here
         if let Some(hash) = self.cache.get(path) {
             return hash.clone();
         }

@@ -3,8 +3,9 @@ use getset::{CopyGetters, Getters, MutGetters, Setters, WithSetters};
 use indicatif::{ProgressBar, ProgressStyle};
 use relative_path::PathExt;
 use std::{
+    collections::BTreeMap,
     fs::{self, File},
-    io::{self, IsTerminal, Write},
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -45,6 +46,19 @@ pub struct FileList {
     #[getset(get = "pub")]
     relative_to: PathBuf, // relative_to is always absolute (canonicalized)
 
+    /// If Some, include stdin in the output, labeled with this string as a path (usually `"-"``)
+    /// Example:
+    /// ```
+    /// use filelist::FileList;
+    /// assert!(
+    ///     FileList::new()
+    ///         .with_include_stdin(Some("-".to_string()))
+    ///         .hash_paths(Vec::new()).contains_key("-")
+    /// );
+    /// ```
+    #[getset(get = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
+    include_stdin: Option<String>,
+
     /// If true, print what has been hashed so far to stderr
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     use_progress_hash: bool,
@@ -80,6 +94,7 @@ pub struct FileList {
 impl Default for FileList {
     fn default() -> Self {
         Self {
+            include_stdin: None,
             hash_length: 64,
             sep: String::from("  "),
             absolute: false,
@@ -154,29 +169,16 @@ impl FileList {
 
 // Public Functions
 impl FileList {
-    pub fn hash_paths(&mut self, mut paths: Vec<PathBuf>) -> Vec<String> {
-        // handle defaults
-        if paths.is_empty() {
-            // if something is piped to stdin, hash stdin
-            if !io::stdin().is_terminal() {
-                paths.push(PathBuf::from("-"));
-            } else {
-                paths.push(PathBuf::from("."));
-            }
-        };
-
+    // NOTE: BTreeMap that this returns is sorted by PathBuf (absolute path), which is different than sorting by relative path
+    /// Hash the paths and return a BTreeMap of paths to hashes
+    /// This will NOT return formatted output, so paths will not be relative and hash will not be trimmed
+    /// stdin will NOT be included
+    /// You probably want to use [`FileList::hash_paths`] instead
+    pub fn hash_paths_raw(&mut self, mut paths: Vec<PathBuf>) -> BTreeMap<PathBuf, String> {
         // canonicalize every path, so that every new path generated will also be canonical
         for path in paths.iter_mut() {
             *path = self.absolute_path(path);
         }
-
-        // if user gave "-", remove it and hash stdin
-        let stdin_path = PathBuf::from("-");
-        let stdin_index = paths.iter().position(|p| p == &stdin_path);
-        if let Some(index) = stdin_index {
-            paths.remove(index);
-        }
-        let add_stdin: bool = stdin_index.is_some();
 
         // create a progress bar if needed
         self.progress_bar = if self.use_progress_bar {
@@ -195,25 +197,60 @@ impl FileList {
         };
         self.hasher.set_progress(Arc::new(pb_updater));
 
-        let mut result = self.hasher.start();
-        if add_stdin {
-            result.insert(stdin_path, hasher::result_to_hash(&self.hash_stdin()));
-        };
+        self.hasher.start()
+    }
 
-        result
+    // NOTE: BTreeMap returned by this function is sorted by relative formatted path, not by absolute path
+    /// Hash the paths and return a BTreeMap of paths to hashes
+    /// ```
+    /// # use filelist::FileList;
+    /// # use std::collections::BTreeMap;
+    /// # use std::path::PathBuf;
+    ///
+    /// let paths = vec![PathBuf::from("README.md")];
+    /// assert_eq!(
+    ///     FileList::new().hash_paths(paths),
+    ///     BTreeMap::from([(
+    ///         "README.md".to_string(),
+    ///         "0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4".to_string()
+    ///     )])
+    /// );
+    /// ```
+    pub fn hash_paths(&mut self, paths: Vec<PathBuf>) -> BTreeMap<String, String> {
+        let mut result: BTreeMap<String, String> = self
+            .hash_paths_raw(paths)
             .into_iter()
-            .map(|(path, hash)| self.fmt_line(&path, &hash))
+            .map(|(path, hash)| (self.fmt_path(&path), self.fmt_hash(&hash).to_string()))
+            .collect();
+
+        if let Some(stdin) = &self.include_stdin {
+            result.insert(
+                stdin.to_string(),
+                hasher::result_to_hash(&self.hash_stdin()),
+            );
+        };
+        result
+    }
+
+    /// Hash the paths and return a Vec of formatted lines, ready to be printed
+    /// ```
+    /// # use filelist::FileList;
+    /// # use std::path::PathBuf;
+    ///
+    /// let paths = vec![PathBuf::from("README.md")];
+    /// assert_eq!(
+    ///     FileList::new().hash_paths_lines(paths),
+    ///     vec!["0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4  README.md\n".to_string()],
+    /// );
+    /// ```
+    pub fn hash_paths_lines(&mut self, paths: Vec<PathBuf>) -> Vec<String> {
+        self.hash_paths(paths)
+            .into_iter()
+            .map(|(path_str, hash)| self.join_path_hash(path_str, hash))
             .collect()
     }
 
-    /// Execute hashing for the provided paths.
-    ///
-    /// This will:
-    /// - Expand directories (if recursive)
-    /// - Filter hidden files (unless `all` is true)
-    /// - Hash files and/or directories
-    /// - Optionally show a progress bar
-    /// - Print results to stdout or a file
+    /// Hash the paths, and write the output to [`FileList::output`] or stdout
     ///
     /// # Errors
     ///
@@ -228,19 +265,19 @@ impl FileList {
                     "{}: output file \"{}\" already exists.\n\
                     If you want to overwrite it, use the -f / --force flag.",
                     "Error".red(),
-                    self.path_to_string(output).bold()
+                    self.fmt_path(output).bold()
                 );
             } else {
                 eprintln!(
                     "Error: output file \"{}\" already exists.\n\
                     If you want to overwrite it, use the -f / --force flag.",
-                    self.path_to_string(output)
+                    self.fmt_path(output)
                 );
             }
             std::process::exit(1);
         }
 
-        let result = self.hash_paths(paths);
+        let result = self.hash_paths_lines(paths);
 
         if let Some(output) = &self.output {
             let mut file = File::create(output).unwrap();
@@ -263,7 +300,6 @@ impl FileList {
     fn hash_stdin(&self) -> io::Result<String> {
         // because I hash stdin after hashing everything else, I don't need any extra logic to suspend progress bar like before
         let stdin = io::stdin();
-        // hash stdin, without letting the progress bar update
         let hash = self.hasher.hash_reader(stdin.lock());
         println!();
         hash
@@ -295,20 +331,24 @@ impl FileList {
     }
 
     /// canonicalize the given [`path`], even if it doesn't exist
-    ///
-    /// If `path` is `-`, return `-`
     fn absolute_path(&self, path: &Path) -> PathBuf {
-        if path.as_os_str() == "-" {
-            return PathBuf::from("-");
-        }
         // canonicalize the path, or if file does not exist, join it with canonical current directory
         path.canonicalize()
             .unwrap_or_else(|_| get_current_dir().join(path))
     }
 
+    fn join_path_hash(&self, path: String, hash: String) -> String {
+        if self.hasher.no_hash() {
+            format!("{path}\n")
+        } else {
+            format!("{hash}{sep}{path}\n", sep = self.sep)
+        }
+    }
+
     // format path and hash to be shown according to the flags
     fn fmt_line(&self, path: &Path, hash: &str) -> String {
-        let path_formatted = self.path_to_string(path);
+        let path_formatted = self.fmt_path(path);
+
         if self.hasher.no_hash() {
             return format!("{path_formatted}\n");
         }
@@ -317,10 +357,45 @@ impl FileList {
         format!("{hash_cut}{sep}{path_formatted}\n", sep = self.sep)
     }
 
+    /// Format hash to be shown according to the flags
     fn fmt_hash<'a>(&self, hash: &'a str) -> &'a str {
+        if self.hasher.no_hash() {
+            return "";
+        }
         match hash.starts_with("ERROR:") {
             true => hash,
             false => &hash[0..self.hash_length],
+        }
+    }
+
+    /// Convert a path into its display form.
+    ///
+    /// Directories are suffixed with `/`. All paths are relative to `self.relative_to`.
+    fn fmt_path(&self, path: &Path) -> String {
+        if let Some(stdin_label) = &self.include_stdin
+            && Path::new(stdin_label) == path
+        {
+            return stdin_label.to_string();
+        }
+
+        let formatted = if self.absolute {
+            path.to_path_buf()
+        } else {
+            let relative = path.relative_to(&self.relative_to).unwrap().to_path("");
+            if relative.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                relative
+            }
+        };
+
+        // if the ORIGINAL is a directory, add a `/`
+        // because of formatting, `formatted` could be invalid path
+        // since it is relative to `self.relative_to`, and `self.is_dir_no_link` doesn't know about `self.relative_to`
+        if self.hasher.is_dir_no_link(path) {
+            format!("{}/", formatted.display())
+        } else {
+            formatted.display().to_string()
         }
     }
 
@@ -350,34 +425,6 @@ impl FileList {
 
     fn eprint_respect_progress(&self, s: impl std::fmt::Display) {
         let _ = self.print_to_respect_progress(&mut io::stderr(), s);
-    }
-
-    /// Convert a path into its display form.
-    ///
-    /// Directories are suffixed with `/`.
-    fn path_to_string(&self, path: &Path) -> String {
-        if path.as_os_str() == "-" {
-            return String::from("-");
-        }
-        let formatted = if self.absolute {
-            path.to_path_buf()
-        } else {
-            let relative = path.relative_to(&self.relative_to).unwrap().to_path("");
-            if relative.as_os_str().is_empty() {
-                PathBuf::from(".")
-            } else {
-                relative
-            }
-        };
-
-        // if the ORIGINAL is a directory, add a `/`
-        // because of formatting, `formatted` could be invalid path
-        // since it is relative to `self.relative_to`, and `self.is_dir_no_link` doesn't know about `self.relative_to`
-        if self.hasher.is_dir_no_link(path) {
-            format!("{}/", formatted.display())
-        } else {
-            formatted.display().to_string()
-        }
     }
 }
 
