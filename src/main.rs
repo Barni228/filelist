@@ -47,26 +47,26 @@ fn main() {
         .set_hash_directory(matches.get_flag("directory"))
         .set_use_parallel(!matches.get_flag("no-parallel"));
 
-    let mut paths: Vec<PathBuf> = matches
+    let mut paths: Vec<&Path> = matches
         .get_many::<PathBuf>("PATHS")
-        .map(|p| p.cloned().collect())
+        .map(|p| p.map(|p| p.as_path()).collect())
         .unwrap_or_else(|| {
             // if something is piped to stdin, hash stdin
             if !io::stdin().is_terminal() {
-                vec![PathBuf::from("-")]
+                vec![Path::new("-")]
             } else {
                 // just hash the current dir
-                vec![PathBuf::from(".")]
+                vec![Path::new(".")]
             }
         });
 
-    if let Some(stdin_index) = paths.iter().position(|p| p == Path::new("-")) {
+    if let Some(stdin_index) = paths.iter().position(|&p| p == Path::new("-")) {
         // include stdin in the output, with path "-"
         fl.set_include_stdin(Some("-".to_string()));
         paths.remove(stdin_index);
     }
 
-    fl.run(paths).unwrap();
+    fl.run(&paths).unwrap();
 }
 
 fn get_clap_command() -> clap::Command {

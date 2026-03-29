@@ -53,7 +53,7 @@ pub struct FileList {
     /// assert!(
     ///     FileList::new()
     ///         .with_include_stdin(Some("-".to_string()))
-    ///         .hash_paths(Vec::new()).contains_key("-")
+    ///         .hash_paths::<&str>(&[]).contains_key("-")
     /// );
     /// ```
     #[getset(get = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
@@ -174,11 +174,9 @@ impl FileList {
     /// This will NOT return formatted output, so paths will not be relative and hash will not be trimmed
     /// stdin will NOT be included
     /// You probably want to use [`FileList::hash_paths`] instead
-    pub fn hash_paths_raw(&mut self, mut paths: Vec<PathBuf>) -> BTreeMap<PathBuf, String> {
+    pub fn hash_paths_raw<P: AsRef<Path>>(&mut self, paths: &[P]) -> BTreeMap<PathBuf, String> {
         // canonicalize every path, so that every new path generated will also be canonical
-        for path in paths.iter_mut() {
-            *path = self.absolute_path(path);
-        }
+        let abs_paths: Vec<PathBuf> = paths.iter().map(|path| self.absolute_path(path)).collect();
 
         // create a progress bar if needed
         self.progress_bar = if self.use_progress_bar {
@@ -188,7 +186,7 @@ impl FileList {
             None
         };
 
-        self.hasher.set_paths(paths);
+        self.hasher.set_paths(abs_paths);
 
         // TODO: I HATE this piece of code, but have no idea how to improve it for now (self.clone())
         let pb_updater = ProgressBarUpdater {
@@ -207,16 +205,15 @@ impl FileList {
     /// # use std::collections::BTreeMap;
     /// # use std::path::PathBuf;
     ///
-    /// let paths = vec![PathBuf::from("README.md")];
     /// assert_eq!(
-    ///     FileList::new().hash_paths(paths),
+    ///     FileList::new().hash_paths(&["README.md"]),
     ///     BTreeMap::from([(
     ///         "README.md".to_string(),
     ///         "0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4".to_string()
     ///     )])
     /// );
     /// ```
-    pub fn hash_paths(&mut self, paths: Vec<PathBuf>) -> BTreeMap<String, String> {
+    pub fn hash_paths<P: AsRef<Path>>(&mut self, paths: &[P]) -> BTreeMap<String, String> {
         let mut result: BTreeMap<String, String> = self
             .hash_paths_raw(paths)
             .into_iter()
@@ -237,13 +234,12 @@ impl FileList {
     /// # use filelist::FileList;
     /// # use std::path::PathBuf;
     ///
-    /// let paths = vec![PathBuf::from("README.md")];
     /// assert_eq!(
-    ///     FileList::new().hash_paths_lines(paths),
+    ///     FileList::new().hash_paths_lines(&["README.md"]),
     ///     vec!["0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4  README.md\n".to_string()],
     /// );
     /// ```
-    pub fn hash_paths_lines(&mut self, paths: Vec<PathBuf>) -> Vec<String> {
+    pub fn hash_paths_lines<P: AsRef<Path>>(&mut self, paths: &[P]) -> Vec<String> {
         self.hash_paths(paths)
             .into_iter()
             .map(|(path_str, hash)| self.join_path_hash(path_str, hash))
@@ -255,7 +251,7 @@ impl FileList {
     /// # Errors
     ///
     /// Returns an error if writing to the output file fails.
-    pub fn run(&mut self, paths: Vec<PathBuf>) -> io::Result<()> {
+    pub fn run<P: AsRef<Path>>(&mut self, paths: &[P]) -> io::Result<()> {
         if let Some(output) = &self.output
             && output.exists()
             && !self.force
@@ -331,9 +327,10 @@ impl FileList {
     }
 
     /// canonicalize the given [`path`], even if it doesn't exist
-    fn absolute_path(&self, path: &Path) -> PathBuf {
+    fn absolute_path<P: AsRef<Path>>(&self, path: P) -> PathBuf {
         // canonicalize the path, or if file does not exist, join it with canonical current directory
-        path.canonicalize()
+        path.as_ref()
+            .canonicalize()
             .unwrap_or_else(|_| get_current_dir().join(path))
     }
 
@@ -371,17 +368,11 @@ impl FileList {
     /// Convert a path into its display form.
     ///
     /// Directories are suffixed with `/`. All paths are relative to `self.relative_to`.
-    fn fmt_path(&self, path: &Path) -> String {
-        if let Some(stdin_label) = &self.include_stdin
-            && Path::new(stdin_label) == path
-        {
-            return stdin_label.to_string();
-        }
-
+    fn fmt_path(&self, abs_path: &Path) -> String {
         let formatted = if self.absolute {
-            path.to_path_buf()
+            abs_path.to_path_buf()
         } else {
-            let relative = path.relative_to(&self.relative_to).unwrap().to_path("");
+            let relative = abs_path.relative_to(&self.relative_to).unwrap().to_path("");
             if relative.as_os_str().is_empty() {
                 PathBuf::from(".")
             } else {
@@ -392,7 +383,7 @@ impl FileList {
         // if the ORIGINAL is a directory, add a `/`
         // because of formatting, `formatted` could be invalid path
         // since it is relative to `self.relative_to`, and `self.is_dir_no_link` doesn't know about `self.relative_to`
-        if self.hasher.is_dir_no_link(path) {
+        if self.hasher.is_dir_no_link(abs_path) {
             format!("{}/", formatted.display())
         } else {
             formatted.display().to_string()

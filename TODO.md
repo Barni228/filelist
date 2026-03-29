@@ -2,8 +2,9 @@
 - [ ] Add option to print progress bar info in stderr, that other programs could parse
 - [ ] Add an option to have paths like "./regular" instead of always cleaning the "." away
 - [ ] Add option to respect gitignore / special ignore file
-- [ ] `FileList::run` feels like something that main.rs should handle,
+- [ ] maybe `FileList::run` should be something that main.rs handles,
       and `FileList` should just be library that handle library stuff, like having nice API, not writing files
+- [ ] Add function that returns `BTreeMap` that maps Relative paths (`PathBuf` or `RelativePathBuf`) to formatted hash (`String`)
 
 ## Easy
 

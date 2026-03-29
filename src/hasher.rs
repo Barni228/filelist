@@ -13,7 +13,6 @@ use walkdir::WalkDir;
 
 use crate::helper::{IsHidden, replace_when};
 
-// TODO: since I removed logic that doesn't hash output file, if user gives force flag then remove output file before doing any hashing
 #[derive(Clone, Getters, Setters, WithSetters, MutGetters, CopyGetters)]
 pub struct Hasher {
     /// If true, don't hash any files
@@ -92,10 +91,12 @@ impl Hasher {
     pub fn set_progress(&mut self, progress: Arc<dyn HasherProgress>) {
         self.progress = Some(progress);
     }
+
     /// Remove the progress object
     pub fn clear_progress(&mut self) {
         self.progress = None;
     }
+
     pub fn with_progress(mut self, progress: Arc<dyn HasherProgress>) -> Self {
         self.set_progress(progress);
         self
@@ -136,7 +137,6 @@ impl Hasher {
             self.use_parallel,
             output_paths
                 .[into_par_iter | into_iter]()
-                // .map(|path| (path, self.hash_no_error(path)))
                 // get everything from cache
                 .map(|path| {
                     let hash = self.cache.get(&path).unwrap().clone();
@@ -380,12 +380,15 @@ pub trait HasherProgress: Send + Sync {
     /// [`all_paths`] is a list of all the paths that will be hashed (not just the paths that will be returned)
     /// So if [`Hasher::paths`] is a single dir, [`all_paths`] will be a list of all the files and directories in that dir
     fn init(&self, all_paths: Vec<&Path>);
+
     /// Will be called every time a file is finished hashing
     fn update_file(&self, path: &Path, hash: &str);
+
     /// Will be called every time a few bytes are hashed
     /// [`bytes`] is the number of bytes hashed since the last call
     /// So its not the total number of bytes hashed, instead it will likely be like a few thousands every call
     fn update_bytes(&self, bytes: usize);
+
     /// Will be called at the end, when everything has been hashed, right before returning
     fn finish(&self);
 }
