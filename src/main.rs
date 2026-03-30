@@ -33,6 +33,7 @@ fn main() {
     fl.set_output(matches.get_one::<PathBuf>("output").map(|p| p.as_path()))
         .set_hash_length(*matches.get_one::<i32>("length").unwrap() as usize)
         .set_absolute(matches.get_flag("absolute"))
+        .set_use_dot_prefix(matches.get_flag("keep-dot"))
         .set_sep(matches.get_one::<String>("sep").unwrap().clone())
         .set_use_progress_hash(matches.get_flag("progress-hash"))
         .set_use_progress_bar(!matches.get_flag("no-progress-bar"))
@@ -89,6 +90,9 @@ fn get_clap_command() -> clap::Command {
         arg!(-R --"no-recursive" "Don't hash directories recursively").overrides_with("recursive"),
         arg!(--"relative-to" <PATH> "Make all paths relative to PATH")
             .value_parser(value_parser!(PathBuf))
+            .conflicts_with("absolute"),
+        arg!(-k --"keep-dot" "Use '.' as prefix for relative paths (`./hi` instead of `hi`)")
+            .alias("dot-prefix")
             .conflicts_with("absolute"),
         arg!(-e --"progress-hash" "print what has been hashed so far to stderr"),
         arg!(-p --"progress-bar" "print progress bar to stderr").overrides_with("no-progress-bar"),

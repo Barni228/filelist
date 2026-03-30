@@ -229,7 +229,7 @@ fn test_absolute() {
 
 #[test]
 fn test_relative_to() {
-    let same_output = ["-0", "-a", "-l12", "--sep=___", "-d"];
+    let same_output = ["-0", "-a", "-l12", "--sep=___", "-d", "-k"];
 
     // running relative-to test_files should be exactly the same as running filelist in test_files
     for i in same_output.iter().powerset() {
@@ -270,6 +270,36 @@ fn test_relative_to_parent() {
         expected,
         run(["test_files", "--relative-to", "test_files/dir"])
     );
+}
+
+#[test]
+fn test_keep_dot() {
+    for i in ["-k", "--keep-dot", "--dot-prefix"] {
+        assert_eq!(
+            concat!(
+                "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  ./test_files/dir/regular\n",
+                "ERROR: No such file or directory (os error 2)  ./test_files/no_exist\n",
+                "ERROR: Permission denied (os error 13)  ./test_files/no_read\n",
+                "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  ./test_files/regular\n"
+            ),
+            run(["test_files", "test_files/no_exist", i])
+        );
+    }
+}
+
+#[test]
+fn test_keep_dot_dir() {
+    for i in ["-k", "--keep-dot", "--dot-prefix"] {
+        assert_eq!(
+            concat!(
+                "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  ./test_files/dir/regular\n",
+                "ERROR: No such file or directory (os error 2)  ./test_files/no_exist\n",
+                "ERROR: Permission denied (os error 13)  ./test_files/no_read\n",
+                "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  ./test_files/regular\n"
+            ),
+            run(["test_files", "test_files/no_exist", i])
+        );
+    }
 }
 
 #[test]
@@ -504,7 +534,7 @@ fn test_progress_hash() {
 
 #[test]
 fn test_progress_hash_file() {
-    let same_output = ["-0", "-a", "-l12", "--sep=___", "-d"];
+    let same_output = ["-0", "-a", "-l12", "--sep=___", "-d", "-k"];
 
     for i in same_output.iter().powerset() {
         let file = NamedTempFile::new().unwrap();
@@ -524,7 +554,7 @@ fn test_progress_hash_file() {
 
 #[test]
 fn test_progress_hash_no_recursion() {
-    let same_output = ["-a", "-l12", "--sep=___"];
+    let same_output = ["-a", "-l12", "--sep=___", "-k"];
 
     for i in same_output.iter().powerset() {
         let output = cmd_output(["-eR", "test_files"].iter().chain(i.clone()));

@@ -46,6 +46,10 @@ pub struct FileList {
     #[getset(get = "pub")]
     relative_to: PathBuf, // relative_to is always absolute (canonicalized)
 
+    /// if true, will return `./hi` instead of `hi`
+    #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
+    use_dot_prefix: bool,
+
     /// If Some, include stdin in the output, labeled with this string as a path (usually `"-"``)
     /// Example:
     /// ```
@@ -99,6 +103,7 @@ impl Default for FileList {
             sep: String::from("  "),
             absolute: false,
             relative_to: get_current_dir(),
+            use_dot_prefix: false,
             use_progress_hash: false,
             use_progress_bar: false,
             progress_bar_type: ProgressBarType::default(),
@@ -405,7 +410,14 @@ impl FileList {
             abs_path.to_path_buf()
         } else {
             // this does not make any sys calls
-            let relative = abs_path.relative_to(&self.relative_to).unwrap().to_path("");
+            let base = match self.use_dot_prefix {
+                true => ".",
+                false => "",
+            };
+            let relative = abs_path
+                .relative_to(&self.relative_to)
+                .unwrap()
+                .to_path(base);
             if relative.as_os_str().is_empty() {
                 PathBuf::from(".")
             } else {
