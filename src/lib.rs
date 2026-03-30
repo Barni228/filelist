@@ -53,7 +53,7 @@ pub struct FileList {
     /// assert!(
     ///     FileList::new()
     ///         .with_include_stdin(Some("-".to_string()))
-    ///         .hash_paths::<&str>(&[]).contains_key("-")
+    ///         .hash_all::<&str>(&[]).contains_key("-")
     /// );
     /// ```
     #[getset(get = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
@@ -169,55 +169,60 @@ impl FileList {
 
 // Public Functions
 impl FileList {
-    // NOTE: BTreeMap that this returns is sorted by PathBuf (absolute path), which is different than sorting by relative path
+    // NOTE: BTreeMap returned by this function is sorted by relative path, not by absolute path
     /// Hash the paths and return a BTreeMap of paths to hashes
-    /// This will NOT return formatted output, so paths will not be relative and hash will not be trimmed
-    /// stdin will NOT be included
-    /// You probably want to use [`FileList::hash_paths`] instead
-    pub fn hash_paths_raw<P: AsRef<Path>>(&mut self, paths: &[P]) -> BTreeMap<PathBuf, String> {
-        // canonicalize every path, so that every new path generated will also be canonical
-        let abs_paths: Vec<PathBuf> = paths.iter().map(|path| self.absolute_path(path)).collect();
+    /// This will only hash the `paths`, and not the [`FileList::include_stdin`],
+    /// use [`FileList::hash_all`] if you want to hash everything
+    /// ```
+    /// use filelist::FileList;
+    /// use std::collections::BTreeMap;
+    /// use std::path::PathBuf;
+    ///
+    /// assert_eq!(
+    ///     FileList::new().hash_paths(&["README.md"]),
+    ///     BTreeMap::from([(
+    ///         PathBuf::from("README.md"),
+    ///         String::from("0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4")
+    ///     )])
+    /// );
+    /// ```
+    pub fn hash_paths<P: AsRef<Path>>(&mut self, paths: &[P]) -> BTreeMap<PathBuf, String> {
+        let result: BTreeMap<_, _> = self
+            .hash_paths_raw(paths)
+            .into_iter()
+            .map(|(path, hash)| {
+                (
+                    self.handle_relative(&path),
+                    self.fmt_hash(&hash).to_string(),
+                )
+            })
+            .collect();
 
-        // create a progress bar if needed
-        self.progress_bar = if self.use_progress_bar {
-            // ProgressBarUpdater will configure this progress bar later
-            Some(Arc::new(ProgressBar::new(0)))
-        } else {
-            None
-        };
-
-        self.hasher.set_paths(abs_paths);
-
-        // TODO: I HATE this piece of code, but have no idea how to improve it for now (self.clone())
-        let pb_updater = ProgressBarUpdater {
-            fl: self.clone(),
-            progress_bar_type: Arc::new(Mutex::new(self.progress_bar_type)),
-        };
-        self.hasher.set_progress(Arc::new(pb_updater));
-
-        self.hasher.start()
+        result
     }
 
     // NOTE: BTreeMap returned by this function is sorted by relative formatted path, not by absolute path
     /// Hash the paths and return a BTreeMap of paths to hashes
+    /// This will hash the `paths` and the [`FileList::include_stdin`]
+    /// Paths will be formatted as Strings, with all of the formatting options applied (like adding `/` to directories)
     /// ```
-    /// # use filelist::FileList;
-    /// # use std::collections::BTreeMap;
-    /// # use std::path::PathBuf;
+    /// use filelist::FileList;
+    /// use std::collections::BTreeMap;
+    /// use std::path::PathBuf;
     ///
     /// assert_eq!(
-    ///     FileList::new().hash_paths(&["README.md"]),
+    ///     FileList::new().hash_all(&["README.md"]),
     ///     BTreeMap::from([(
     ///         "README.md".to_string(),
     ///         "0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4".to_string()
     ///     )])
     /// );
     /// ```
-    pub fn hash_paths<P: AsRef<Path>>(&mut self, paths: &[P]) -> BTreeMap<String, String> {
+    pub fn hash_all<P: AsRef<Path>>(&mut self, paths: &[P]) -> BTreeMap<String, String> {
         let mut result: BTreeMap<String, String> = self
-            .hash_paths_raw(paths)
+            .hash_paths(paths)
             .into_iter()
-            .map(|(path, hash)| (self.fmt_path(&path), self.fmt_hash(&hash).to_string()))
+            .map(|(path, hash)| (self.fmt_formatted_path(&path), hash))
             .collect();
 
         if let Some(stdin) = &self.include_stdin {
@@ -231,22 +236,22 @@ impl FileList {
 
     /// Hash the paths and return a Vec of formatted lines, ready to be printed
     /// ```
-    /// # use filelist::FileList;
-    /// # use std::path::PathBuf;
+    /// use filelist::FileList;
+    /// use std::path::PathBuf;
     ///
     /// assert_eq!(
-    ///     FileList::new().hash_paths_lines(&["README.md"]),
+    ///     FileList::new().hash_all_lines(&["README.md"]),
     ///     vec!["0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4  README.md\n".to_string()],
     /// );
     /// ```
-    pub fn hash_paths_lines<P: AsRef<Path>>(&mut self, paths: &[P]) -> Vec<String> {
-        self.hash_paths(paths)
+    pub fn hash_all_lines<P: AsRef<Path>>(&mut self, paths: &[P]) -> Vec<String> {
+        self.hash_all(paths)
             .into_iter()
             .map(|(path_str, hash)| self.join_path_hash(path_str, hash))
             .collect()
     }
 
-    /// Hash the paths, and write the output to [`FileList::output`] or stdout
+    /// Hash the paths, and write the output to [`FileList::output`] or `stdout`
     ///
     /// # Errors
     ///
@@ -273,7 +278,7 @@ impl FileList {
             std::process::exit(1);
         }
 
-        let result = self.hash_paths_lines(paths);
+        let result = self.hash_all_lines(paths);
 
         if let Some(output) = &self.output {
             let mut file = File::create(output).unwrap();
@@ -292,6 +297,34 @@ impl FileList {
 
 // Actual Logic, all private
 impl FileList {
+    // NOTE: BTreeMap that this returns is sorted by PathBuf (absolute path), which is different than sorting by relative path
+    /// Hash the paths and return a BTreeMap of paths to hashes
+    /// This will NOT return formatted output, so paths will not be relative and hash will not be trimmed
+    /// stdin will NOT be included
+    fn hash_paths_raw<P: AsRef<Path>>(&mut self, paths: &[P]) -> BTreeMap<PathBuf, String> {
+        // canonicalize every path, so that every new path generated will also be canonical
+        let abs_paths: Vec<PathBuf> = paths.iter().map(|path| self.absolute_path(path)).collect();
+
+        // create a progress bar if needed
+        self.progress_bar = if self.use_progress_bar {
+            // ProgressBarUpdater will configure this progress bar later
+            Some(Arc::new(ProgressBar::new(0)))
+        } else {
+            None
+        };
+
+        self.hasher.set_paths(abs_paths);
+
+        // TODO: I HATE this piece of code, but have no idea how to improve it for now (self.clone())
+        let pb_updater = ProgressBarUpdater {
+            fl: self.clone(),
+            progress_bar_type: Arc::new(Mutex::new(self.progress_bar_type)),
+        };
+        self.hasher.set_progress(Arc::new(pb_updater));
+
+        self.hasher.start()
+    }
+
     /// Hash stdin
     fn hash_stdin(&self) -> io::Result<String> {
         // because I hash stdin after hashing everything else, I don't need any extra logic to suspend progress bar like before
@@ -365,21 +398,40 @@ impl FileList {
         }
     }
 
-    /// Convert a path into its display form.
-    ///
-    /// Directories are suffixed with `/`. All paths are relative to `self.relative_to`.
-    fn fmt_path(&self, abs_path: &Path) -> String {
-        let formatted = if self.absolute {
+    /// Make a path be relative to what it needs to be relative to
+    /// This is a very cheap operation
+    fn handle_relative(&self, abs_path: &Path) -> PathBuf {
+        if self.absolute {
             abs_path.to_path_buf()
         } else {
+            // this does not make any sys calls
             let relative = abs_path.relative_to(&self.relative_to).unwrap().to_path("");
             if relative.as_os_str().is_empty() {
                 PathBuf::from(".")
             } else {
                 relative
             }
+        }
+    }
+
+    fn fmt_formatted_path(&self, rel_path: &Path) -> String {
+        let abs_path = if self.absolute {
+            rel_path
+        } else {
+            &self.relative_to.join(rel_path)
         };
 
+        if self.hasher.is_dir_no_link(abs_path) {
+            format!("{}/", rel_path.display())
+        } else {
+            rel_path.display().to_string()
+        }
+    }
+    /// Convert a path into its display form.
+    ///
+    /// Directories are suffixed with `/`. All paths are relative to `self.relative_to`.
+    fn fmt_path(&self, abs_path: &Path) -> String {
+        let formatted = self.handle_relative(abs_path);
         // if the ORIGINAL is a directory, add a `/`
         // because of formatting, `formatted` could be invalid path
         // since it is relative to `self.relative_to`, and `self.is_dir_no_link` doesn't know about `self.relative_to`

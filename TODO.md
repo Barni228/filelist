@@ -4,7 +4,6 @@
 - [ ] Add option to respect gitignore / special ignore file
 - [ ] maybe `FileList::run` should be something that main.rs handles,
       and `FileList` should just be library that handle library stuff, like having nice API, not writing files
-- [ ] Add function that returns `BTreeMap` that maps Relative paths (`PathBuf` or `RelativePathBuf`) to formatted hash (`String`)
 
 ## Easy
 
@@ -15,6 +14,7 @@
 
 ## Done
 
+- [x] Add function that returns `BTreeMap` that maps Relative paths (`PathBuf` or `RelativePathBuf`) to formatted hash (`String`)
 - [x] Maybe make a nicer detection of stdin (right now i check if path == "-")
 - [x] `filelist | less` if you press `q` before it prints everything, it throws an error
 - [x] Canonicalize paths that get cached, so I never hash same file twice
