@@ -1,7 +1,6 @@
 use crossterm::style::Stylize;
 use getset::{CopyGetters, Getters, MutGetters, Setters, WithSetters};
 use indicatif::{ProgressBar, ProgressStyle};
-use relative_path::PathExt;
 use std::{
     collections::BTreeMap,
     fs::{self, File},
@@ -414,14 +413,11 @@ impl FileList {
                 true => ".",
                 false => "",
             };
-            let relative = abs_path
-                .relative_to(&self.relative_to)
-                .unwrap()
-                .to_path(base);
+            let relative = pathdiff::diff_paths(abs_path, &self.relative_to).unwrap();
             if relative.as_os_str().is_empty() {
                 PathBuf::from(".")
             } else {
-                relative
+                PathBuf::from(base).join(relative)
             }
         }
     }

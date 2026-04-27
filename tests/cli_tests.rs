@@ -7,7 +7,7 @@
 // ```
 // so left is correct, right is actual output
 
-use assert_cmd::{Command, prelude::*};
+use assert_cmd::{prelude::*, Command};
 use crossterm::style::Stylize;
 use itertools::Itertools;
 use std::io::Write;
