@@ -1,5 +1,3 @@
-use std::fs;
-
 /// Replace `[$left | $right]` with `$left` or `$right` depending on `$when`.
 /// If `$when` is true, `$left` is used, otherwise `$right` is used.
 /// This is NOT recursive, so in only replaces in one level of tokens
@@ -35,25 +33,3 @@ macro_rules! replace_when {
 }
 
 pub(crate) use replace_when;
-
-pub(crate) trait IsHidden {
-    fn is_hidden(&self) -> bool;
-}
-
-impl IsHidden for walkdir::DirEntry {
-    fn is_hidden(&self) -> bool {
-        self.file_name()
-            .to_str()
-            .map(|s| s.starts_with('.') && s.len() > 1)
-            .unwrap_or(false)
-    }
-}
-
-impl IsHidden for fs::DirEntry {
-    fn is_hidden(&self) -> bool {
-        self.file_name()
-            .to_str()
-            .map(|s| s.starts_with('.') && s.len() > 1)
-            .unwrap_or(false)
-    }
-}

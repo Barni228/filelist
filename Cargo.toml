@@ -11,11 +11,11 @@ dashmap = "6.1.0"
 either = "1.15.0"
 getset = "0.1.6"
 hex = "0.4.3"
+ignore = "0.4.25"
 indicatif = "0.18.4"
 pathdiff = "0.2.3"
 rayon = "1.12.0"
 sha2 = "0.11.0"
-walkdir = "2.5.0"
 
 [dev-dependencies]
 assert_cmd = { version = "2.2.0", features = ["color"] }

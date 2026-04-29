@@ -7,7 +7,7 @@
 // ```
 // so left is correct, right is actual output
 
-use assert_cmd::{prelude::*, Command};
+use assert_cmd::{Command, prelude::*};
 use crossterm::style::Stylize;
 use itertools::Itertools;
 use std::io::Write;
@@ -257,7 +257,6 @@ fn test_relative_to() {
     }
 }
 
-// TODO: I did some refactoring, and now found a bug where everything was sorted by absolute path instead of relative one
 #[test]
 fn test_relative_to_parent() {
     let expected = concat!(
@@ -392,6 +391,96 @@ fn test_directory() {
             run(["test_files", i])
         );
     }
+}
+
+#[test]
+fn test_ignore_all() {
+    for i in ["-g", "--ignore-all"] {
+        assert_eq!(
+            concat!(
+                // .gitignore is ignoring test_files/no_read, so this should also ignore that file
+                "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+                "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+            ),
+            run(["test_files", i])
+        );
+    }
+}
+
+#[test]
+fn test_ignore() {
+    assert_eq!(
+        concat!(
+            // I don't have .ignore file anywhere, but i hope i dont need to test it, since I already tested .gitignore
+            "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+            "ERROR: Permission denied (os error 13)  test_files/no_read\n",
+            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+        ),
+        run(["test_files", "--ignore"])
+    );
+}
+
+#[test]
+fn test_gitignore() {
+    assert_eq!(
+        concat!(
+            // .gitignore of this repo is ignoring test_files/no_read
+            "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+        ),
+        run(["test_files", "--gitignore"])
+    );
+}
+
+#[test]
+fn test_global_gitignore() {
+    assert_eq!(
+        concat!(
+            "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+            "ERROR: Permission denied (os error 13)  test_files/no_read\n",
+            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+        ),
+        run(["test_files", "--global-gitignore"])
+    );
+}
+
+#[test]
+fn test_git_exclude() {
+    assert_eq!(
+        concat!(
+            "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+            "ERROR: Permission denied (os error 13)  test_files/no_read\n",
+            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+        ),
+        run(["test_files", "--git-exclude"])
+    );
+}
+
+#[test]
+fn test_custom_ignore() {
+    assert_eq!(
+        concat!(
+            "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f  test_files/dir/regular\n",
+            "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95  test_files/regular\n",
+        ),
+        run(["test_files", "--custom-ignore", ".gitignore"])
+    );
+}
+
+#[test]
+fn test_custom_ignore_many() {
+    assert_eq!(
+        // test_files/regular has word "regular" in it, which means we ignore every
+        // "regular" file, AND no_read file, so we basically ignore everything
+        "",
+        run([
+            "test_files",
+            "--custom-ignore",
+            ".gitignore",
+            "--custom-ignore",
+            "test_files/regular",
+        ])
+    );
 }
 
 #[test]

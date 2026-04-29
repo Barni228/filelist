@@ -46,6 +46,19 @@ fn main() {
         .set_recursive(!matches.get_flag("no-recursive"))
         .set_follow_links(matches.get_flag("link"))
         .set_hash_directory(matches.get_flag("directory"))
+        .set_ignore(matches.get_flag("ignore") || matches.get_flag("ignore-all"))
+        .set_gitignore(matches.get_flag("gitignore") || matches.get_flag("ignore-all"))
+        .set_global_gitignore(
+            matches.get_flag("global-gitignore") || matches.get_flag("ignore-all"),
+        )
+        .set_git_exclude(matches.get_flag("git-exclude") || matches.get_flag("ignore-all"))
+        .set_custom_ignore_files(
+            matches
+                .get_many::<PathBuf>("custom-ignore")
+                .unwrap_or_default()
+                .cloned()
+                .collect(),
+        )
         .set_use_parallel(!matches.get_flag("no-parallel"));
 
     let mut paths: Vec<&Path> = matches
@@ -81,6 +94,21 @@ fn get_clap_command() -> clap::Command {
             .value_parser(value_parser!(i32).range(0..=64_i64)),
         arg!(-a --all "Include hidden files"),
         arg!(-d --directory "Include directory entries in output"),
+        arg!(-g --"ignore-all"
+            "Ignore files in .ignore file, or .gitignore (or global git-ignores)\n\
+            This enables `--ignore`, `--gitignore`, `--global-gitignore`, and `--git-exclude`"
+        ),
+        arg!(--ignore "Ignore files in .ignore"),
+        arg!(--gitignore "Ignore files in .gitignore"),
+        arg!(--"global-gitignore" "Ignore files in global .gitignore (~/.gitignore)"),
+        arg!(--"git-exclude" "Ignore files in .git/info/exclude"),
+        arg!(
+            --"custom-ignore" <PATH>
+            "Path to a file with ignore patterns (like .gitignore).\
+            Can be passed multiple times to add more ignore files"
+        )
+        .value_parser(value_parser!(PathBuf))
+        .action(clap::ArgAction::Append),
         arg!(-'0' --"no-hash" "List files without computing hashes"),
         arg!(-A --absolute "Convert all paths to absolute paths"),
         arg!(-s --link "Follow symlinks"),

@@ -435,6 +435,7 @@ impl FileList {
             rel_path.display().to_string()
         }
     }
+
     /// Convert a path into its display form.
     ///
     /// Directories are suffixed with `/`. All paths are relative to `self.relative_to`.

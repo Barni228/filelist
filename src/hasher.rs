@@ -1,6 +1,8 @@
+use crate::helper::replace_when;
 use dashmap::DashMap;
 use either::Either;
 use getset::{CopyGetters, Getters, MutGetters, Setters, WithSetters};
+use ignore::WalkBuilder;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
@@ -9,9 +11,6 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use walkdir::WalkDir;
-
-use crate::helper::{IsHidden, replace_when};
 
 #[derive(Clone, Getters, Setters, WithSetters, MutGetters, CopyGetters)]
 pub struct Hasher {
@@ -26,6 +25,26 @@ pub struct Hasher {
     /// If true, hash directories
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     hash_directory: bool,
+
+    /// If true, respect `.ignore` files
+    #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
+    ignore: bool,
+
+    /// If true, respect `.gitignore` files
+    #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
+    gitignore: bool,
+
+    /// If true, respect `.git/info/exclude` files
+    #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
+    git_exclude: bool,
+
+    /// If true, respect global `.gitignore` file
+    #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
+    global_gitignore: bool,
+
+    /// Vector of files with ignore patterns
+    #[getset(set = "pub", get_mut = "pub", set_with = "pub")]
+    custom_ignore_files: Vec<PathBuf>,
 
     /// If true, when passing a directory, this will return hash of directory and hash of everything inside
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
@@ -45,6 +64,8 @@ pub struct Hasher {
 
     /// An optional progress object (can be used to show progress bar)
     progress: Option<Arc<dyn HasherProgress>>,
+
+    // private
     cache: Arc<DashMap<PathBuf, String>>,
 }
 
@@ -54,6 +75,11 @@ impl Default for Hasher {
             no_hash: false,
             all: false,
             hash_directory: false,
+            ignore: false,
+            gitignore: false,
+            git_exclude: false,
+            global_gitignore: false,
+            custom_ignore_files: Vec::new(),
             recursive: true,
             follow_links: false,
             use_parallel: true,
@@ -88,8 +114,9 @@ impl std::fmt::Debug for Hasher {
 
 impl Hasher {
     /// An optional progress object (can be used to show progress bar)
-    pub fn set_progress(&mut self, progress: Arc<dyn HasherProgress>) {
+    pub fn set_progress(&mut self, progress: Arc<dyn HasherProgress>) -> &mut Self {
         self.progress = Some(progress);
+        self
     }
 
     /// Remove the progress object
@@ -99,6 +126,24 @@ impl Hasher {
 
     pub fn with_progress(mut self, progress: Arc<dyn HasherProgress>) -> Self {
         self.set_progress(progress);
+        self
+    }
+
+    pub fn set_ignore_all(&mut self, yes: bool) -> &mut Self {
+        self.ignore = yes;
+        self.gitignore = yes;
+        self.git_exclude = yes;
+        self.global_gitignore = yes;
+        self
+    }
+
+    pub fn with_ignore_all(mut self, yes: bool) -> Self {
+        self.set_ignore_all(yes);
+        self
+    }
+
+    pub fn add_custom_ignore_file<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
+        self.custom_ignore_files.push(path.as_ref().to_path_buf());
         self
     }
 }
@@ -228,16 +273,12 @@ impl Hasher {
                 if self.recursive && p.is_dir() {
                     // either allows two iterators to be the same type
                     Either::Left(
-                        WalkDir::new(p)
-                            .follow_links(self.follow_links)
-                            .follow_root_links(self.follow_links)
-                            .into_iter()
-                            // filter out hidden files if `all` is not set, and if they are not the root
-                            // so if the user gives .dir, I will include it even without `all`
-                            .filter_entry(|e| self.all || !e.is_hidden() || e.depth() == 0)
+                        self.walk(p)
                             .filter_map(Result::ok)
                             // filter out directories if `directory` is false
-                            .filter(|e| self.hash_directory || !e.file_type().is_dir())
+                            .filter(|e| {
+                                self.hash_directory || !e.file_type().is_some_and(|t| t.is_dir())
+                            })
                             .map(|e| e.into_path()), // convert to PathBuf
                     )
                 } else {
@@ -271,37 +312,29 @@ impl Hasher {
             }
             // if you give a file to WalkDir, it will just return it
             // by default, WalkDir will return directory before its contents (can change with `contents_first`)
-            WalkDir::new(p)
-                .follow_links(self.follow_links)
-                // this doesn't really matter, because I already make sure that `p`
-                // is something that needs to be followed by using `is_dir_no_link`
-                .follow_root_links(self.follow_links)
-                .into_iter()
-                .filter_entry(|e| self.all || !e.is_hidden() || e.depth() == 0)
-                .filter_map(Result::ok)
-                .for_each(|e| {
-                    // WalkDir DirEntry will only return true if it is dir, or symlink AND `follow_links` is true
-                    // more efficient than `self.is_dir_no_link(&path)` because WalkDir already knows this info without sys calls
-                    if e.file_type().is_dir() {
-                        depths.insert(e.into_path(), 0);
-                    // if this is file or file symlink or unfollowed symlink
-                    } else {
-                        // entry 0 is for all files or empty directories (they dont have any dependencies)
-                        // skip the file itself
-                        for (i, parent) in e.path().ancestors().enumerate().skip(1) {
-                            // if someone already gave a higher depth to my parent,
-                            // then that someone also gave a better depth to all of my parents, so break
-                            if let Some(depth) = depths.get_mut(parent)
-                                && *depth < i
-                            {
-                                *depth = i;
-                            } else {
-                                break;
-                            }
+            self.walk(p).filter_map(Result::ok).for_each(|e| {
+                // DirEntry will only return true if it is dir, or symlink AND `follow_links` is true
+                // more efficient than `self.is_dir_no_link(&path)` because Walk already knows this info without sys calls
+                if e.file_type().is_some_and(|t| t.is_dir()) {
+                    depths.insert(e.into_path(), 0);
+                // if this is file or file symlink or unfollowed symlink
+                } else {
+                    // entry 0 is for all files or empty directories (they dont have any dependencies)
+                    // skip the file itself
+                    for (i, parent) in e.path().ancestors().enumerate().skip(1) {
+                        // if someone already gave a higher depth to my parent,
+                        // then that someone also gave a better depth to all of my parents, so break
+                        if let Some(depth) = depths.get_mut(parent)
+                            && *depth < i
+                        {
+                            *depth = i;
+                        } else {
+                            break;
                         }
-                        dependencies.entry(0).or_default().insert(e.into_path());
                     }
-                });
+                    dependencies.entry(0).or_default().insert(e.into_path());
+                }
+            });
         }
 
         // convert depths HashMap to dependencies BTreeMap
@@ -320,19 +353,16 @@ impl Hasher {
     fn hash_dir(&self, path: &Path) -> io::Result<String> {
         let mut hashes: Vec<String> = replace_when! {
             self.use_parallel,
-            fs::read_dir(path)?
+            // only go one layer deep, like fs::read_dir
+            self.walk_builder(path).min_depth(Some(1)).max_depth(Some(1)).build()
                 .filter_map(Result::ok)
                 // HACK: if use_parallel is false, I call by_ref in here, to effectively do nothing,
                 // because i need to call par_bridge if use_parallel is true, but not call it when use_parallel is false
                 .[par_bridge | by_ref]()
                 .filter_map(|entry| {
-                    if !self.all && entry.is_hidden() {
-                        return None;
-                    }
-
                     // ignore all the errors
                     // self.hash(&entry.path()).ok()
-                    let hash = self.hash_no_error(&entry.path());
+                    let hash = self.hash_no_error(entry.path());
                     if !hash.starts_with("ERROR:") {
                         Some(hash)
                     } else {
@@ -343,7 +373,7 @@ impl Hasher {
                 .collect()
         };
 
-        // sort the hashes, because order in which fd::read_dir returns files is not consistent across platforms
+        // sort the hashes, because order in which `self.walk` returns files is not consistent across platforms
         hashes.sort_unstable();
         // hash all of the hashes together
         let mut hasher = Sha256::new();
@@ -372,6 +402,34 @@ impl Hasher {
 
         let hash = hex::encode(Sha256::digest(target_str));
         Ok(hash)
+    }
+
+    fn walk<P: AsRef<Path>>(&self, path: P) -> ignore::Walk {
+        self.walk_builder(path).build()
+    }
+
+    fn walk_builder<P: AsRef<Path>>(&self, path: P) -> ignore::WalkBuilder {
+        let mut builder = WalkBuilder::new(path);
+
+        builder
+            .follow_links(self.follow_links)
+            // filter out hidden files if `all` is not set, and if they are not the root
+            // so if the user gives .dir, I will include it regardless of `all`
+            .hidden(!self.all)
+            // if true, respect `.ignore` file
+            .ignore(self.ignore)
+            // if true, respect `.gitignore`
+            .git_ignore(self.gitignore)
+            // if true, respect `~/.gitignore`
+            .git_global(self.global_gitignore)
+            // if true, respect `.git/info/exclude`
+            .git_exclude(self.git_exclude);
+
+        for ignore_file in &self.custom_ignore_files {
+            builder.add_ignore(ignore_file);
+        }
+
+        builder
     }
 }
 
