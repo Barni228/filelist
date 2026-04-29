@@ -3,6 +3,9 @@ name = "filelist"
 version = "0.2.0"
 edition = "2024"
 description = "List files in directory with their hashes."
+readme = "README.md"
+repository = "https://github.com/Barni228/filelist"
+license = "MIT"
 
 [dependencies]
 clap = { version = "4.6.1", features = ["cargo"] }
@@ -21,3 +24,8 @@ sha2 = "0.11.0"
 assert_cmd = { version = "2.2.0", features = ["color"] }
 itertools = "0.14.0"
 tempfile = "3.21.0"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
