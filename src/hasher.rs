@@ -27,22 +27,26 @@ pub struct Hasher {
     hash_directory: bool,
 
     /// If true, respect `.ignore` files
+    /// Also see [`Hasher::gitignore`], [`Hasher::global_gitignore`], [`Hasher::git_exclude`]
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     ignore: bool,
 
     /// If true, respect `.gitignore` files
+    /// Also see [`Hasher::ignore`], [`Hasher::global_gitignore`], [`Hasher::git_exclude`]
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     gitignore: bool,
 
-    /// If true, respect `.git/info/exclude` files
-    #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
-    git_exclude: bool,
-
     /// If true, respect global `.gitignore` file
+    /// Also see [`Hasher::ignore`], [`Hasher::gitignore`], [`Hasher::git_exclude`]
     #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
     global_gitignore: bool,
 
-    /// Vector of files with ignore patterns
+    /// If true, respect `.git/info/exclude` files
+    /// Also see [`Hasher::ignore`], [`Hasher::gitignore`], [`Hasher::global_gitignore`]
+    #[getset(get_copy = "pub", set = "pub", get_mut = "pub", set_with = "pub")]
+    git_exclude: bool,
+
+    /// files with ignore patterns, like `.gitignore`
     #[getset(set = "pub", get_mut = "pub", set_with = "pub")]
     custom_ignore_files: Vec<PathBuf>,
 
@@ -77,8 +81,8 @@ impl Default for Hasher {
             hash_directory: false,
             ignore: false,
             gitignore: false,
-            git_exclude: false,
             global_gitignore: false,
+            git_exclude: false,
             custom_ignore_files: Vec::new(),
             recursive: true,
             follow_links: false,
