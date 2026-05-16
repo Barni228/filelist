@@ -186,7 +186,7 @@ impl FileList {
     ///     FileList::new().hash_paths(&["README.md"]),
     ///     BTreeMap::from([(
     ///         PathBuf::from("README.md"),
-    ///         String::from("0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4")
+    ///         String::from("05f67bac461d100fde0b5e8d81bb768161d9dbd012ba309e1b2c7c260d765fbd")
     ///     )])
     /// );
     /// ```
@@ -218,7 +218,7 @@ impl FileList {
     ///     FileList::new().hash_all(&["README.md"]),
     ///     BTreeMap::from([(
     ///         "README.md".to_string(),
-    ///         "0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4".to_string()
+    ///         "05f67bac461d100fde0b5e8d81bb768161d9dbd012ba309e1b2c7c260d765fbd".to_string()
     ///     )])
     /// );
     /// ```
@@ -245,7 +245,7 @@ impl FileList {
     ///
     /// assert_eq!(
     ///     FileList::new().hash_all_lines(&["README.md"]),
-    ///     vec!["0e8d5acebaffa8a97378b315f4204006458f0ae793c4a8e5a29b6134dffed4c4  README.md\n".to_string()],
+    ///     vec!["05f67bac461d100fde0b5e8d81bb768161d9dbd012ba309e1b2c7c260d765fbd  README.md\n".to_string()],
     /// );
     /// ```
     pub fn hash_all_lines<P: AsRef<Path>>(&mut self, paths: &[P]) -> Vec<String> {

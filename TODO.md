@@ -1,10 +1,9 @@
 - [ ] When hashing followed symlinks, instead of hashing their target again get it from cache
 - [ ] Add option to print progress bar info to stderr (in json), that other programs could parse
 - [ ] Add a way to return the hash errors without hashing, like actual `Result`, not `String`
+- [ ] `Hasher::start` should consume the `Hasher`, since the previous cache and progress bar cannot be reused anyway
 - [ ] maybe `FileList::run` should be something that main.rs handles,
       and `FileList` should just be library that handle library stuff, like having nice API, not writing files
-
-## Easy
 
 ## Bugs
 

@@ -83,3 +83,6 @@ dd57c65a5219917d4c423ce6a0bf2d95  dir/regular
 ERROR: Permission denied (os error 13)  no_read
 7f44ae7d5074b592265a407f5495aa12  regular
 ```
+
+Fun fact: I have been working on this since 2025-08-25 16:19
+(rewrote this in rust on 2025-09-04)

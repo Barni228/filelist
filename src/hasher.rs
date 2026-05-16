@@ -159,7 +159,13 @@ impl Hasher {
 
     /// Start hashing, will call all [`HasherProgress`] methods
     /// returns a BTreeMap of paths to hashes
+    /// Note: if you re-run this multiple times, make sure to re-assign
+    /// the progress bar or else the progress bar will not work
     pub fn start(&mut self) -> BTreeMap<PathBuf, String> {
+        // clear the cache, since old cache might be outdated
+        // TODO: this is mainly to make sure that when i change some settings, they are respected
+        // (test_hash_multiple_times test needs this), so maybe there is better way
+        self.cache.clear();
         let output_paths = self.get_output_paths();
         let dependencies = self.get_hash_dependencies(&output_paths);
 

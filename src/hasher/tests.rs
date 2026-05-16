@@ -254,3 +254,37 @@ fn test_get_hash_dependencies_does_not_exist() {
         dependencies
     );
 }
+
+#[test]
+fn test_hash_multiple_times() {
+    let mut hasher = Hasher::new();
+    hasher.set_no_hash(true);
+    hasher.set_paths(vec!["test_files".into()]);
+    assert_eq!(
+        BTreeMap::from([
+            ("test_files/dir/regular".into(), "".into()),
+            ("test_files/no_read".into(), "".into()),
+            ("test_files/regular".into(), "".into())
+        ]),
+        hasher.start()
+    );
+
+    hasher.set_no_hash(false);
+    assert_eq!(
+        BTreeMap::from([
+            (
+                "test_files/dir/regular".into(),
+                "dd57c65a5219917d4c423ce6a0bf2d9540b403ae9a0259406103fa08fe26117f".into()
+            ),
+            (
+                "test_files/no_read".into(),
+                "ERROR: Permission denied (os error 13)".into()
+            ),
+            (
+                "test_files/regular".into(),
+                "7f44ae7d5074b592265a407f5495aa1207ff15f60353d71b3a085588f90ffe95".into()
+            )
+        ]),
+        hasher.start()
+    );
+}
